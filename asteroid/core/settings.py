@@ -65,6 +65,32 @@ def user_dir(name: str) -> Path:
     return (home if home else config_dir()) / name
 
 
+def N_(text: str) -> str:
+    """Phrase traduite à l'affichage (i18n importe ce module : pas d'import en retour)."""
+    return text
+
+
+# Profil « illimité » : run_aster impose 86 400 s sans P time_limit, on écrit donc 100 jours.
+UNLIMITED_TIME = 8_640_000
+
+
+class RunProfile(Persisted):
+    """Limites d'un run, choisies au lancement (P time_limit, P memory_limit du .export)."""
+
+    name: str
+    time_limit: int | None = 300  # s ; None : illimité
+    memory_limit: int = 2048  # Mo
+
+
+def default_profiles() -> list[RunProfile]:
+    return [
+        # Noms traduits à l'affichage ; un nom choisi par l'utilisateur s'affiche tel quel.
+        RunProfile(name=N_("Court"), time_limit=300, memory_limit=2048),
+        RunProfile(name=N_("Long"), time_limit=3600, memory_limit=8192),
+        RunProfile(name=N_("Illimité"), time_limit=None, memory_limit=8192),
+    ]
+
+
 class Settings(Persisted):
     docker_image: str = DEFAULT_IMAGE  # variable {image} des commandes
     run_command: str = DEFAULT_RUN_COMMAND
@@ -76,6 +102,16 @@ class Settings(Persisted):
     # Faux tant que l'utilisateur n'a pas validé l'écran de premier lancement.
     configured: bool = False
     recent_projects: list[str] = Field(default_factory=list)
+    run_profiles: list[RunProfile] = Field(default_factory=default_profiles)
+
+
+def run_limits(settings: Settings, profile: str | None, time_limit: int, memory_limit: int) -> dict:
+    """Limites du run : celles du profil nommé, sinon les valeurs du projet (profil libre)."""
+    for p in settings.run_profiles:
+        if profile and p.name == profile:
+            time = UNLIMITED_TIME if p.time_limit is None else p.time_limit
+            return {"profile": p.name, "time_limit": time, "memory_limit": p.memory_limit}
+    return {"profile": None, "time_limit": time_limit, "memory_limit": memory_limit}
 
 
 def settings_path() -> Path:

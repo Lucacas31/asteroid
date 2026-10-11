@@ -66,6 +66,8 @@ export interface Project {
   runs_dir: string;
   time_limit: number;
   memory_limit: number;
+  /** Profil des réglages globaux choisi au dernier lancement ; null : valeurs du projet. */
+  run_profile?: string | null;
   files: ExtraFile[];
   blocks: Block[];
 }
@@ -80,6 +82,14 @@ export interface Settings {
   language: string;
   configured: boolean;
   recent_projects: string[];
+  run_profiles: RunProfile[];
+}
+
+/** Limites d'un run (P time_limit, P memory_limit) ; time_limit null : illimité. */
+export interface RunProfile {
+  name: string;
+  time_limit: number | null;
+  memory_limit: number;
 }
 
 export interface Snapshot {
@@ -172,9 +182,22 @@ export interface RunInfo {
   messages: AsterMessage[];
   command: string;
   warnings: string[];
+  note: string;
+  profile: string | null;
+  time_limit: number;
+  memory_limit: number;
 }
 
-export type RunSummary = Pick<RunInfo, "id" | "status" | "started" | "duration">;
+export interface RunSummary
+  extends Pick<RunInfo, "id" | "status" | "started" | "duration" | "note" | "profile" | "time_limit" | "memory_limit"> {
+  size: number;
+  has_mesh: boolean;
+}
+
+export interface RunFile {
+  name: string;
+  size: number;
+}
 
 export interface MeshGroup {
   name: string;
@@ -289,7 +312,19 @@ export const api = {
   putSettings: (s: Settings) => request<Settings>("PUT", "/api/settings", s),
 
   runs: () => request<RunSummary[]>("GET", "/api/runs"),
-  startRun: () => request<RunInfo>("POST", "/api/runs"),
+  startRun: (profile: string | null) => request<RunInfo>("POST", "/api/runs", { profile }),
+  setRunNote: (id: string, note: string) => request<{ note: string }>("PATCH", `/api/runs/${encodeURIComponent(id)}`, { note }),
+  deleteRun: (id: string) => request<{ deleted: string }>("DELETE", `/api/runs/${encodeURIComponent(id)}`),
+  lightenRun: (id: string) => request<{ freed: number }>("POST", `/api/runs/${encodeURIComponent(id)}/lighten`),
+  runFiles: (id: string) => request<RunFile[]>("GET", `/api/runs/${encodeURIComponent(id)}/files`),
+  runFileText: async (id: string, name: string): Promise<string> => {
+    const res = await fetch(`/api/runs/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? `${res.status}`);
+    return res.text();
+  },
+  openRunDir: (id: string) => request<{ path: string }>("POST", `/api/runs/${encodeURIComponent(id)}/open_dir`),
+  compareRuns: (a: string, b: string) =>
+    request<{ diff: string[] }>("GET", `/api/runs/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   runInfo: (id: string) => request<RunInfo>("GET", `/api/runs/${encodeURIComponent(id)}`),
   stopRun: (id: string) => request<{ stopped: boolean }>("POST", `/api/runs/${encodeURIComponent(id)}/stop`),
   paraview: (id: string) =>

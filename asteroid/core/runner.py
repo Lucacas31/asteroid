@@ -1,16 +1,24 @@
-"""Lancement et suivi des runs Code_Aster."""
+"""Lancement et suivi des runs Code_Aster.
+
+Un run est un script `run.sh` détaché du serveur : il écrit lui-même sa sortie dans
+`run.log` et son code de retour dans `run.exit`. Fermer l'app n'arrête donc pas le
+calcul ; à la réouverture, un run encore en cours est repris (suivi du log), un run
+fini entre-temps reçoit son vrai statut (lecture du fichier `message`).
+"""
 
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
@@ -19,11 +27,24 @@ from . import comm as commgen
 from .i18n import t
 from .message import parse_message, status_from
 from .model import Project
-from .settings import Settings
+from .settings import Settings, run_limits
 
 RUN_INFO = "run.json"
 RUN_LOG = "run.log"
+RUN_SCRIPT = "run.sh"
+RUN_EXIT = "run.exit"
 STOP_GRACE = 5.0
+POLL = 0.2
+RUN_ID = re.compile(r"[\w][\w.-]*")
+
+SCRIPT = """\
+#!/bin/bash
+# Généré par Asteroid : commande de lancement des réglages, exécutée depuis ce dossier.
+# Sortie dans {log}, code de retour dans {exit}. Relançable à la main : bash {script}
+cd "$(dirname "$0")"
+bash -c {command} >> {log} 2>&1 < /dev/null
+echo $? > {exit}
+"""
 
 
 def substitute(template: str, variables: dict[str, str]) -> str:
@@ -31,6 +52,28 @@ def substitute(template: str, variables: dict[str, str]) -> str:
     for key, value in variables.items():
         template = template.replace("{" + key + "}", value)
     return template
+
+
+def project_for_run(project: Project, settings: Settings) -> Project:
+    """Projet avec les limites du profil choisi (P time_limit, P memory_limit du .export)."""
+    limits = run_limits(settings, project.run_profile, project.time_limit, project.memory_limit)
+    return project.model_copy(update={"time_limit": limits["time_limit"], "memory_limit": limits["memory_limit"]})
+
+
+def _alive(pid: int | None, run_dir: Path) -> bool:
+    """Le processus du run tourne encore (et c'est bien lui : même dossier courant)."""
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    try:
+        return Path(os.readlink(f"/proc/{pid}/cwd")) == run_dir.resolve()
+    except OSError:
+        return True
 
 
 @dataclass
@@ -42,11 +85,17 @@ class Run:
     stop_command: str = ""
     started: float = field(default_factory=time.time)
     lines: list[str] = field(default_factory=list)
-    proc: asyncio.subprocess.Process | None = None
+    proc: subprocess.Popen | None = None
+    pid: int | None = None
     finished: bool = False
     stopped: bool = False
     info: dict = field(default_factory=dict)
     cond: asyncio.Condition = field(default_factory=asyncio.Condition)
+
+    def alive(self) -> bool:
+        if self.proc is not None:
+            return self.proc.poll() is None
+        return _alive(self.pid, self.dir)
 
 
 class RunManager:
@@ -56,7 +105,8 @@ class RunManager:
     # ------------------------------------------------------------------ lancement
 
     async def start(self, project_dir: Path, project: Project, settings: Settings) -> Run:
-        result = commgen.generate(project)
+        limits = run_limits(settings, project.run_profile, project.time_limit, project.memory_limit)
+        result = commgen.generate(project_for_run(project, settings))
         runs_root = project_dir / project.runs_dir
         run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         run_dir = runs_root / run_id
@@ -84,13 +134,7 @@ class RunManager:
             "image": settings.docker_image,
         }
         command = substitute(settings.run_command, variables)
-        run = Run(
-            run_id,
-            run_dir,
-            command,
-            result.blocks,
-            stop_command=substitute(settings.stop_command, variables),
-        )
+        run = Run(run_id, run_dir, command, result.blocks, stop_command=substitute(settings.stop_command, variables))
         run.info = {
             "id": run_id,
             "status": "running",
@@ -101,48 +145,66 @@ class RunManager:
             "diagnostic": None,
             "messages": [],
             "command": command,
+            "stop_command": run.stop_command,
             "warnings": result.warnings,
+            "note": "",
+            **limits,
+            # Pour rattacher les messages aux blocs si le run est repris après un redémarrage.
+            "blocks": [asdict(b) | {"issues": []} for b in result.blocks],
         }
+        (run_dir / RUN_LOG).write_text(f"$ {command}\n")
+        (run_dir / RUN_SCRIPT).write_text(
+            SCRIPT.format(command=shlex.quote(command), log=RUN_LOG, exit=RUN_EXIT, script=RUN_SCRIPT)
+        )
+        run.proc = subprocess.Popen(
+            ["bash", RUN_SCRIPT],
+            cwd=run_dir,
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        run.pid = run.info["pid"] = run.proc.pid
         self._write_info(run)
         self.active[run_id] = run
-
-        run.proc = await asyncio.create_subprocess_shell(
-            command,
-            cwd=run_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,
-            executable="/bin/bash",
-            limit=1 << 20,
-        )
-        asyncio.create_task(self._pump(run))
+        asyncio.create_task(self._watch(run))
         return run
 
-    async def _pump(self, run: Run) -> None:
-        assert run.proc and run.proc.stdout
-        with open(run.dir / RUN_LOG, "w", encoding="utf-8") as log:
-            await self._append(run, log, f"$ {run.command}")
-            while True:
-                try:
-                    raw = await run.proc.stdout.readline()
-                except ValueError:  # ligne plus longue que la limite
-                    raw = await run.proc.stdout.read(1 << 20)
-                if not raw:
-                    break
-                await self._append(run, log, raw.decode("utf-8", "replace").rstrip("\n"))
-            returncode = await run.proc.wait()
-        await self._finish(run, returncode)
+    async def _watch(self, run: Run) -> None:
+        """Suit run.log jusqu'à la fin du script (run.exit) ou la mort du processus."""
+        log = run.dir / RUN_LOG
+        pos, partial = 0, b""
+        while True:
+            done = (run.dir / RUN_EXIT).exists() or not run.alive()
+            data = b""
+            try:
+                with open(log, "rb") as f:
+                    f.seek(pos)
+                    data = f.read()
+            except OSError:
+                pass
+            pos += len(data)
+            chunks = (partial + data).split(b"\n")
+            partial = chunks.pop()
+            if chunks:
+                await self._append(run, [c.decode("utf-8", "replace") for c in chunks])
+            if done and not data:
+                break
+            await asyncio.sleep(POLL)
+        if partial:
+            await self._append(run, [partial.decode("utf-8", "replace")])
+        await self._finish(run, _read_exit(run.dir))
 
-    async def _append(self, run: Run, log, line: str) -> None:
-        log.write(line + "\n")
-        log.flush()
+    async def _append(self, run: Run, lines: list[str]) -> None:
         async with run.cond:
-            run.lines.append(line)
+            run.lines.extend(lines)
             run.cond.notify_all()
 
-    async def _finish(self, run: Run, returncode: int) -> None:
-        message_file = run.dir / commgen.MESSAGE_NAME
+    async def _finish(self, run: Run, returncode: int | None) -> None:
+        if run.proc is not None:
+            run.proc.wait()  # récupère le processus (pas de zombie)
         diagnostic, messages = None, []
+        message_file = run.dir / commgen.MESSAGE_NAME
         if message_file.exists():
             report = parse_message(message_file.read_text(errors="replace"))
             report.align([(b.start_line, b.command, b.concept) for b in run.blocks if b.command])
@@ -151,8 +213,13 @@ class RunManager:
                 item = msg.to_dict()
                 item["block_id"] = commgen.block_for_line(run.blocks, msg.comm_line)
                 messages.append(item)
-        status = "stopped" if run.stopped else status_from(diagnostic, returncode)
-        ended = time.time()
+        if run.stopped:
+            status = "stopped"
+        elif returncode is None and diagnostic is None:
+            status = "interrupted"  # processus disparu sans code de retour ni diagnostic
+        else:
+            status = status_from(diagnostic, returncode)
+        ended = (run.dir / RUN_EXIT).stat().st_mtime if (run.dir / RUN_EXIT).exists() else time.time()
         run.info.update(
             status=status,
             ended=datetime.fromtimestamp(ended).isoformat(timespec="seconds"),
@@ -169,11 +236,34 @@ class RunManager:
     def _write_info(self, run: Run) -> None:
         (run.dir / RUN_INFO).write_text(json.dumps(run.info, indent=2, ensure_ascii=False))
 
+    # ------------------------------------------------------------------ reprise
+
+    def recover(self, runs_root: Path) -> None:
+        """Reprend les runs marqués « en cours » que ce serveur ne suit pas (app relancée)."""
+        if not runs_root.is_dir():
+            return
+        for d in runs_root.iterdir():
+            path = d / RUN_INFO
+            if d.name in self.active or not path.is_file():
+                continue
+            try:
+                info = json.loads(path.read_text())
+            except ValueError:
+                continue
+            if info.get("status") != "running":
+                continue
+            started = datetime.fromisoformat(info["started"]).timestamp()
+            blocks = [commgen.BlockInfo(**b) for b in info.get("blocks", [])]
+            run = Run(d.name, d, info.get("command", ""), blocks, info.get("stop_command", ""), started,
+                      pid=info.get("pid"), info=info)
+            self.active[d.name] = run
+            asyncio.get_running_loop().create_task(self._watch(run))
+
     # ------------------------------------------------------------------ arrêt
 
     async def stop(self, run_id: str) -> bool:
         run = self.active.get(run_id)
-        if not run or run.finished or not run.proc:
+        if not run or run.finished:
             return False
         run.stopped = True
         if run.stop_command:
@@ -181,12 +271,13 @@ class RunManager:
                 run.stop_command, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
             )
             await proc.wait()
-        try:
-            await asyncio.wait_for(run.proc.wait(), STOP_GRACE)
-        except asyncio.TimeoutError:
+        end = time.time() + STOP_GRACE
+        while run.alive() and time.time() < end:
+            await asyncio.sleep(POLL)
+        if run.alive() and run.pid:
             try:
-                os.killpg(run.proc.pid, signal.SIGTERM)
-            except ProcessLookupError:
+                os.killpg(run.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
                 pass
         return True
 
@@ -215,14 +306,11 @@ class RunManager:
     def info(self, run_id: str, runs_root: Path) -> dict | None:
         run = self.active.get(run_id)
         if run is not None:
-            return run.info
+            return public_info(run.info)
         path = runs_root / run_id / RUN_INFO
         if not path.exists():
             return None
-        info = json.loads(path.read_text())
-        if info.get("status") == "running":
-            info["status"] = "interrupted"  # l'app a été fermée pendant le run
-        return info
+        return public_info(json.loads(path.read_text()))
 
     def history(self, runs_root: Path) -> list[dict]:
         if not runs_root.is_dir():
@@ -232,8 +320,67 @@ class RunManager:
             if d.is_dir() and (d / RUN_INFO).exists():
                 info = self.info(d.name, runs_root)
                 if info:
-                    items.append({k: info.get(k) for k in ("id", "status", "started", "duration")})
+                    keys = ("id", "status", "started", "duration", "note", "profile", "time_limit", "memory_limit")
+                    items.append({k: info.get(k) for k in keys} | {"size": dir_size(d), "has_mesh": (d / commgen.MESH_NAME).exists()})
         return items
+
+
+def public_info(info: dict) -> dict:
+    """run.json sans les données internes (blocs, pid)."""
+    return {k: v for k, v in info.items() if k not in ("blocks", "pid")}
+
+
+def _read_exit(run_dir: Path) -> int | None:
+    try:
+        return int((run_dir / RUN_EXIT).read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------- dossiers de runs
+
+
+def run_path(runs_root: Path, run_id: str) -> Path:
+    """Dossier d'un run ; refuse tout identifiant qui sortirait du dossier des runs."""
+    if not RUN_ID.fullmatch(run_id):
+        raise ValueError(t("identifiant de run invalide : {id}", id=run_id))
+    return runs_root / run_id
+
+
+def dir_size(directory: Path) -> int:
+    return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
+
+
+def run_files(run_dir: Path) -> list[dict]:
+    return [
+        {"name": f.relative_to(run_dir).as_posix(), "size": f.stat().st_size}
+        for f in sorted(run_dir.rglob("*"))
+        if f.is_file()
+    ]
+
+
+def set_note(run_dir: Path, note: str) -> None:
+    path = run_dir / RUN_INFO
+    info = json.loads(path.read_text())
+    info["note"] = note
+    path.write_text(json.dumps(info, indent=2, ensure_ascii=False))
+
+
+def lighten(run_dir: Path) -> int:
+    """Retire la copie du maillage d'un run (résultats, .comm et message conservés). Octets libérés."""
+    mesh = run_dir / commgen.MESH_NAME
+    if not mesh.exists():
+        return 0
+    size = mesh.stat().st_size
+    mesh.unlink()
+    return size
+
+
+def compare_comm(runs_root: Path, a: str, b: str) -> list[str]:
+    """Différences entre les .comm de deux runs (diff unifié, sans en-tête)."""
+    texts = [(run_path(runs_root, r) / commgen.COMM_NAME).read_text().splitlines() for r in (a, b)]
+    return list(difflib.unified_diff(texts[0], texts[1], a, b, n=2, lineterm=""))[2:]
+
 
 
 # ---------------------------------------------------------------------- post-traitement

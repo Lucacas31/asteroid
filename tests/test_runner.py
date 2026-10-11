@@ -1,7 +1,10 @@
 import asyncio
 import json
+import os
 import shutil
+import signal
 import subprocess
+import time
 
 import pytest
 
@@ -143,3 +146,75 @@ def test_attached_data_file_docker(tmp_path):
     _, run, lines = run_project(tmp_path, project, Settings())
     assert run.info["status"] == "ok", "\n".join(lines[-30:])
     assert (run.dir / "courbe.txt").exists()
+
+
+# ---------------------------------------------------------------------- runs détachés
+
+MESSAGE_OK = "printf -- '--- DIAGNOSTIC JOB : OK\\n' > message"
+
+
+def start_and_leave(tmp_path, command):
+    """Lance un run puis « ferme l'app » : la boucle asyncio s'arrête, le script continue."""
+    async def go():
+        return await RunManager().start(tmp_path, Project(), Settings(run_command=command, stop_command=""))
+
+    return asyncio.run(go())
+
+
+def recovered_info(tmp_path, run_id):
+    """« Rouvre l'app » : nouveau gestionnaire, reprise, suivi jusqu'à la fin."""
+    async def go():
+        mgr = RunManager()
+        mgr.recover(tmp_path / "runs")
+        lines = [line async for line in mgr.follow(run_id, tmp_path / "runs")]
+        return mgr.info(run_id, tmp_path / "runs"), lines
+
+    return asyncio.run(go())
+
+
+def test_run_survives_app_and_is_recovered(tmp_path):
+    run = start_and_leave(tmp_path, f"echo début; sleep 1.5; echo fin; {MESSAGE_OK}")
+    assert json.loads((run.dir / "run.json").read_text())["status"] == "running"
+    info, lines = recovered_info(tmp_path, run.id)
+    assert info["status"] == "ok" and info["returncode"] == 0
+    assert "début" in lines and "fin" in lines
+    assert "pid" not in info and "blocks" not in info
+    assert (run.dir / "run.sh").read_text().startswith("#!/bin/bash")
+
+
+def test_run_finished_while_app_closed(tmp_path):
+    run = start_and_leave(tmp_path, f"echo vite; {MESSAGE_OK}")
+    for _ in range(50):
+        if (run.dir / "run.exit").exists():
+            break
+        time.sleep(0.1)
+    info, _ = recovered_info(tmp_path, run.id)
+    assert info["status"] == "ok"  # et non « interrompu »
+
+
+def test_process_gone_without_exit_is_interrupted(tmp_path):
+    run = start_and_leave(tmp_path, "sleep 30")
+    os.killpg(run.pid, signal.SIGKILL)
+    run.proc.wait()
+    info, _ = recovered_info(tmp_path, run.id)
+    assert info["status"] == "interrupted"
+
+
+def test_profiles_in_export(tmp_path):
+    settings = Settings(run_command="true", stop_command="")
+    project = Project(time_limit=120, memory_limit=1024, run_profile="Illimité")
+    run = asyncio.run(_start_and_wait(tmp_path, project, settings))
+    export = (run.dir / "run.export").read_text()
+    assert "P time_limit 8640000" in export and "P memory_limit 8192" in export
+    assert run.info["profile"] == "Illimité"
+    # Profil inconnu : valeurs du projet.
+    run = asyncio.run(_start_and_wait(tmp_path, project.model_copy(update={"run_profile": "absent"}), settings))
+    assert "P time_limit 120" in (run.dir / "run.export").read_text()
+    assert run.info["profile"] is None
+
+
+async def _start_and_wait(tmp_path, project, settings):
+    mgr = RunManager()
+    run = await mgr.start(tmp_path, project, settings)
+    [_ async for _ in mgr.follow(run.id, tmp_path / project.runs_dir)]
+    return run

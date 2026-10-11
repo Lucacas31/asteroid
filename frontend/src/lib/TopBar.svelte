@@ -5,9 +5,16 @@
   import { t } from "./i18n.svelte";
 
   let menuOpen = $state(false);
+  let profilesOpen = $state(false);
+
+  function launch(profile: string | null) {
+    profilesOpen = false;
+    app.startRun(false, profile);
+  }
 
   function act(fn: () => unknown) {
     menuOpen = false;
+    profilesOpen = false;
     fn();
   }
 
@@ -24,7 +31,12 @@
   }
 </script>
 
-<svelte:window onclick={() => (menuOpen = false)} />
+<svelte:window
+  onclick={() => {
+    menuOpen = false;
+    profilesOpen = false;
+  }}
+/>
 
 <header>
   <div class="left">
@@ -90,9 +102,43 @@
         <Icon name="stop" filled size={12} />Stop
       </button>
     {:else}
-      <button class="primary" onclick={() => app.startRun()} title={t("Lancer le calcul (Ctrl+Entrée)")}>
-        <Icon name="play" filled size={12} />Run
-      </button>
+      <div class="run-wrap">
+        <button
+          class="primary run"
+          onclick={() => app.startRun()}
+          title={t("Lancer le calcul (Ctrl+Entrée) avec le profil « {profile} »", { profile: app.profileLabel(app.project.run_profile) })}
+        >
+          <Icon name="play" filled size={12} />Run
+        </button>
+        <button
+          class="primary profile"
+          title={t("Choisir le profil et lancer")}
+          onclick={(e) => {
+            e.stopPropagation();
+            profilesOpen = !profilesOpen;
+          }}
+        >
+          {app.profileLabel(app.project.run_profile)}<Icon name="chevron" size={12} />
+        </button>
+        {#if profilesOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="menu profiles" onclick={(e) => e.stopPropagation()}>
+            <div class="sep first">{t("Lancer avec le profil")}</div>
+            {#each [null, ...(app.settings?.run_profiles ?? []).map((p) => p.name)] as name (name ?? "")}
+              {@const p = app.settings?.run_profiles.find((x) => x.name === name)}
+              <button class="ghost choice" onclick={() => launch(name)}>
+                <span class="tick">{#if (app.project.run_profile ?? null) === name}<Icon name="check" size={13} />{/if}</span>
+                <span class="name">{app.profileLabel(name)}</span>
+                <span class="muted small">
+                  {p ? app.limitsLabel(p.time_limit, p.memory_limit) : app.limitsLabel(app.project.time_limit, app.project.memory_limit)}
+                </span>
+              </button>
+            {/each}
+            <div class="sep"></div>
+            <button class="ghost" onclick={() => act(() => (app.settingsOpen = true))}><Icon name="settings" />{t("Modifier les profils…")}</button>
+          </div>
+        {/if}
+      </div>
     {/if}
     <button
       onclick={() => app.openParaview()}
@@ -150,6 +196,47 @@
   .history {
     display: flex;
     gap: 2px;
+  }
+  .run-wrap {
+    position: relative;
+    display: flex;
+  }
+  .run {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .profile {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 1px solid color-mix(in srgb, #fff 35%, transparent);
+    gap: 3px;
+    padding-left: 8px;
+    padding-right: 6px;
+    font-size: 12px;
+  }
+  .profiles {
+    left: auto;
+    right: 0;
+    min-width: 300px;
+  }
+  .choice {
+    gap: 8px !important;
+  }
+  .choice .tick {
+    width: 14px;
+    display: flex;
+    color: var(--accent);
+  }
+  .choice .name {
+    flex: 1;
+    text-align: left;
+  }
+  .small {
+    font-size: 11.5px;
+  }
+  .sep.first {
+    border-top: none;
+    margin-top: 0;
   }
   .stop {
     background: var(--err);
