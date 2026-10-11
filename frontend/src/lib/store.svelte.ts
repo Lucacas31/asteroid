@@ -16,10 +16,14 @@ import {
   type Snapshot,
 } from "./api";
 import { autofill, conceptsBefore, missingRequired, type FormCatalog } from "./forms";
+import { History } from "./history";
 import { i18n, N_, t } from "./i18n.svelte";
+import { collectProblems, type Problem } from "./problems";
 
 export type BottomTab = "comm" | "export" | "log" | "history";
 type SaveState = "saved" | "dirty" | "saving" | "nodir" | "error";
+/** edit : saisie (fusionnée avec les saisies rapprochées) ; step : action franche ; amend : suite de l'étape en cours. */
+type Change = "edit" | "step" | "amend";
 
 interface PickerRequest {
   mode: "file" | "dir";
@@ -106,11 +110,21 @@ class AppStore {
   libraryErrors = $state<string[]>([]);
   libraryDir = $state("");
 
+  canUndo = $state(false);
+  canRedo = $state(false);
+  /** Incrémenté à chaque annulation : les éditeurs du bloc sont recréés avec les valeurs restaurées. */
+  revision = $state(0);
+  /** Bloc dont l'éditeur a le focus : le module d'erreurs attend la fin de la saisie. */
+  editingId = $state<string | null>(null);
+  /** Liste des erreurs ouverte : consultation, ou avant le lancement d'un run. */
+  problemsOpen = $state<"list" | "run" | null>(null);
+
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
   #previewTimer: ReturnType<typeof setTimeout> | undefined;
   #noticeTimer: ReturnType<typeof setTimeout> | undefined;
   #source: EventSource | null = null;
   #lastSaved = "";
+  #history = new History(JSON.stringify(this.project));
 
   selected = $derived(this.project.blocks.find((b) => b.id === this.selectedId) ?? null);
   running = $derived(this.activeRunId !== null);
@@ -151,6 +165,13 @@ class AppStore {
     return map;
   });
 
+  /** Erreurs repérées avant le run (syntaxe, validation, champs obligatoires). */
+  problems = $derived(collectProblems(this.project.blocks, this.blockInfo, this.blockMissing));
+
+  /** Erreurs signalées par le module : aucune pendant l'édition d'un bloc (y compris les erreurs
+   *  en cascade d'une saisie inachevée), toutes dès qu'on passe à autre chose. */
+  shownProblems = $derived(this.editingId ? [] : this.problems);
+
   /** Messages du dernier run affiché, rattachés à leur bloc. */
   blockMessages = $derived.by(() => {
     const map = new Map<string, AsterMessage[]>();
@@ -174,8 +195,13 @@ class AppStore {
     }
   }
 
-  #apply(snap: Snapshot) {
+  #apply(snap: Snapshot, keepHistory = false) {
     this.project = snap.project;
+    const json = JSON.stringify(snap.project);
+    if (keepHistory) this.#history.record(json, performance.now());
+    else this.#history.reset(json);
+    this.#syncHistory();
+    this.problemsOpen = null;
     this.projectDir = snap.project_dir;
     this.settings = snap.settings;
     this.paths = snap.paths;
@@ -256,9 +282,22 @@ class AppStore {
   // ------------------------------------------------------------------ sauvegarde
 
   /** Appelé à chaque modification du projet. */
-  touch() {
-    this.schedulePreview();
+  touch(change: Change = "edit") {
     const json = JSON.stringify(this.project);
+    if (change === "amend") this.#history.amend(json);
+    else this.#history.record(json, performance.now(), change === "step");
+    this.#syncHistory();
+    this.#changed(json);
+  }
+
+  #syncHistory() {
+    this.canUndo = this.#history.canUndo;
+    this.canRedo = this.#history.canRedo;
+  }
+
+  /** Aperçu et sauvegarde différée, sans toucher à l'historique. */
+  #changed(json: string) {
+    this.schedulePreview();
     if (json === this.#lastSaved) return;
     if (!this.projectDir) {
       this.saveState = "nodir";
@@ -288,6 +327,31 @@ class AppStore {
     }
   }
 
+  // ------------------------------------------------------------------ annuler / rétablir
+
+  undo() {
+    this.#restore(this.#history.undo(JSON.stringify(this.project)));
+  }
+
+  redo() {
+    this.#restore(this.#history.redo(JSON.stringify(this.project)));
+  }
+
+  #restore(json: string | null) {
+    this.#syncHistory();
+    if (json === null) return;
+    const before = new Set(this.project.blocks.map((b) => b.id));
+    this.project = JSON.parse(json);
+    // Un bloc qui réapparaît (suppression annulée) devient le bloc sélectionné.
+    const back = this.project.blocks.find((b) => !before.has(b.id));
+    if (back) this.selectedId = back.id;
+    else if (!this.project.blocks.some((b) => b.id === this.selectedId)) {
+      this.selectedId = this.project.blocks[0]?.id ?? null;
+    }
+    this.revision++;
+    this.#changed(json);
+  }
+
   schedulePreview() {
     clearTimeout(this.#previewTimer);
     this.#previewTimer = setTimeout(async () => {
@@ -297,6 +361,16 @@ class AppStore {
         this.error(e);
       }
     }, PREVIEW_DELAY);
+  }
+
+  /** Aperçu à jour tout de suite (avant un run, après une correction). */
+  async refreshPreview() {
+    clearTimeout(this.#previewTimer);
+    try {
+      this.preview = await api.preview($state.snapshot(this.project));
+    } catch (e) {
+      this.error(e);
+    }
   }
 
   // ------------------------------------------------------------------ fichiers
@@ -349,7 +423,7 @@ class AppStore {
     if (!dir) return false;
     try {
       await api.saveProject($state.snapshot(this.project));
-      this.#apply(await api.saveAs(dir));
+      this.#apply(await api.saveAs(dir), true);
       this.info(t("Projet enregistré dans {path}", { path: dir }));
       return true;
     } catch (e) {
@@ -413,7 +487,7 @@ class AppStore {
       const res = await api.useMaterial(materialId, this.project.units);
       block.params = res.params;
       block.meta = { ...(block.meta ?? {}), material: materialId, units: res.units };
-      this.touch();
+      this.touch("step");
       this.info(
         this.projectDir
           ? t("« {name} » converti en {units} et copié dans materials.json", { name: res.material.name, units: res.units })
@@ -472,7 +546,7 @@ class AppStore {
         block.mode = "form";
         block.fallback_reason = null;
       }
-      this.touch();
+      this.touch("step");
       return true;
     } catch (e) {
       this.error(e);
@@ -505,7 +579,7 @@ class AppStore {
       this.project.blocks.splice(at, 0, block);
       this.#backfill(at + 1);
       this.selectedId = block.id;
-      this.touch();
+      this.touch("step");
     } catch (e) {
       this.error(e);
     }
@@ -539,7 +613,7 @@ class AppStore {
 
   setUnits(units: Project["units"]) {
     this.project.units = units;
-    this.touch();
+    this.touch("step");
   }
 
   /** Ajoute MODI_MAILLAGE(ECHELLE=...) juste après la lecture du maillage. */
@@ -566,7 +640,7 @@ class AppStore {
     const i = this.project.files.findIndex((f) => f.unit === unit);
     if (i >= 0) this.project.files[i] = entry;
     else this.project.files.push(entry);
-    this.touch();
+    this.touch("step");
   }
 
   async pickAndAttach(unit: number) {
@@ -579,7 +653,7 @@ class AppStore {
     if (mode === "replace") this.project.blocks.splice(0, this.project.blocks.length, ...blocks);
     else this.project.blocks.push(...blocks);
     this.selectedId = blocks[0]?.id ?? this.selectedId;
-    this.touch();
+    this.touch("step");
     this.info(t("{count} bloc(s) importé(s)", { count: blocks.length }));
   }
 
@@ -589,7 +663,7 @@ class AppStore {
     const copy: Block = { ...$state.snapshot(this.project.blocks[i]), id: newId() };
     this.project.blocks.splice(i + 1, 0, copy);
     this.selectedId = copy.id;
-    this.touch();
+    this.touch("step");
   }
 
   removeBlock(id: string) {
@@ -599,14 +673,60 @@ class AppStore {
     if (this.selectedId === id) {
       this.selectedId = this.project.blocks[Math.min(i, this.project.blocks.length - 1)]?.id ?? null;
     }
-    this.touch();
+    this.touch("step");
+  }
+
+  /** Propage le nouveau nom d'un concept aux blocs qui le référencent (même étape d'annulation). */
+  async renameConcept(blockId: string, old: string | null, name: string | null) {
+    if (!old || !name || old === name) return;
+    const index = this.project.blocks.findIndex((b) => b.id === blockId);
+    if (index < 0) return;
+    if (this.project.blocks.some((b, i) => i !== index && this.blockCommand(b).concept === name)) {
+      this.info(t("« {name} » est déjà défini : les références à « {old} » ne sont pas modifiées", { name, old }));
+      return;
+    }
+    try {
+      const res = await api.renameConcept($state.snapshot(this.project.blocks) as Block[], index, old, name);
+      // Projet modifié entre-temps (annulation…) : réponse périmée.
+      if (!res.count || this.project.blocks[index]?.id !== blockId || this.project.blocks[index].concept !== name) return;
+      for (const updated of res.blocks) {
+        const block = this.project.blocks.find((b) => b.id === updated.id);
+        if (!block) continue;
+        if (JSON.stringify(block.params) !== JSON.stringify(updated.params)) block.params = updated.params;
+        if (block.text !== updated.text) block.text = updated.text;
+        if (block.concept !== updated.concept) block.concept = updated.concept;
+      }
+      this.touch("amend");
+      this.info(t("{count} référence(s) à « {old} » renommée(s) en « {name} »", { count: res.count, old, name }));
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  /** Corrige un nom de groupe (casse) dans un bloc. */
+  async fixGroup(blockId: string, fix: NonNullable<Problem["fix"]>) {
+    const block = this.project.blocks.find((b) => b.id === blockId);
+    if (!block) return;
+    try {
+      const res = await api.replaceGroup($state.snapshot(block) as Block, fix.from, fix.to);
+      if (!res.count) {
+        this.info(t("« {name} » n'apparaît pas tel quel dans le bloc : à corriger à la main", { name: fix.from }));
+        return;
+      }
+      block.params = res.block.params;
+      block.text = res.block.text;
+      this.touch("step");
+      await this.refreshPreview();
+    } catch (e) {
+      this.error(e);
+    }
   }
 
   moveBlock(from: number, to: number) {
     if (from === to || from + 1 === to) return;
     const [block] = this.project.blocks.splice(from, 1);
     this.project.blocks.splice(to > from ? to - 1 : to, 0, block);
-    this.touch();
+    this.touch("step");
   }
 
   // ------------------------------------------------------------------ runs
@@ -623,12 +743,17 @@ class AppStore {
     }
   }
 
-  async startRun() {
+  /** Lance le calcul ; s'il reste des erreurs, les montre d'abord (`force` : lancer quand même). */
+  async startRun(force = false) {
     if (this.running) return;
     if (!this.projectDir && !(await this.saveAs())) return;
     if (!(await this.save())) return;
-    const errors = (this.preview?.blocks ?? []).filter((b) => b.error);
-    if (errors.length && !confirm(t("{count} bloc(s) en erreur. Lancer quand même ?", { count: errors.length }))) return;
+    await this.refreshPreview();
+    if (!force && this.problems.length) {
+      this.problemsOpen = "run";
+      return;
+    }
+    this.problemsOpen = null;
     try {
       const info = await api.startRun();
       this.activeRunId = info.id;

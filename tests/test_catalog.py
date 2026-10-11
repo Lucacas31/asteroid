@@ -59,6 +59,16 @@ def test_python_variables_and_created_groups(catalog):
     assert messages(check(catalog, source)) == []
 
 
+def test_group_case_suggestion(catalog):
+    [issue] = check(catalog, 'cl = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=_F(GROUP_MA="x0", DX=0.0))')
+    assert issue.level == "error" and "« X0 » existe" in issue.message
+    assert issue.to_dict()["fix"] == {"kind": "group_case", "from": "x0", "to": "X0"}
+    # Plusieurs groupes à la casse près : pas de suggestion.
+    groups = {"GROUP_MA": GROUPS["GROUP_MA"] | {"Charge", "CHARGE"}, "GROUP_NO": set()}
+    [issue] = check(catalog, 'cl = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=_F(GROUP_MA="charge", DX=0.0))', groups)
+    assert issue.fix is None and "existe" not in issue.message
+
+
 def test_no_mesh_no_group_check(catalog):
     source = 'cl = AFFE_CHAR_MECA(MODELE=model, DDL_IMPO=_F(GROUP_MA="NOPE", DX=0.0))'
     assert messages(check(catalog, source, groups=None)) == []

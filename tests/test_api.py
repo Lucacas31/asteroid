@@ -92,3 +92,13 @@ def test_foreign_host_or_origin_refused(client):
     assert client.post("/api/runs", headers={"Origin": "https://evil.test"}).status_code == 403
     assert client.post("/api/runs", headers={"Origin": "null"}).status_code == 403
 
+
+def test_rename_and_group_fix_routes(client):
+    blocks = [
+        {"command": "DEFI_MATERIAU", "concept": "pla", "mode": "form", "params": {}},
+        {"mode": "text", "text": "chmat = AFFE_MATERIAU(MAILLAGE=mail, AFFE=_F(GROUP_MA='vol', MATER=mat))"},
+    ]
+    res = client.post("/api/blocks/rename_concept", json={"blocks": blocks, "index": 0, "old": "mat", "new": "pla"}).json()
+    assert res["count"] == 1 and "MATER=pla" in res["blocks"][1]["text"]
+    res = client.post("/api/blocks/replace_group", json={"block": res["blocks"][1], "old": "vol", "new": "VOL"}).json()
+    assert res["count"] == 1 and "GROUP_MA='VOL'" in res["block"]["text"]

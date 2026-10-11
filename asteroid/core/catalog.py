@@ -175,6 +175,7 @@ class Issue:
     level: str  # "error" ou "warning"
     template: str
     vars: dict[str, Any] = field(default_factory=dict)
+    fix: dict[str, str] | None = None  # correction proposée, ex. {"kind": "group_case", "from": …, "to": …}
 
     def _render(self, tr) -> str:
         out = tr(self.template)
@@ -189,7 +190,10 @@ class Issue:
         return self._render(lambda x: x)
 
     def to_dict(self) -> dict:
-        return {"level": self.level, "message": self._render(i18n.t)}
+        out = {"level": self.level, "message": self._render(i18n.t)}
+        if self.fix:
+            out["fix"] = self.fix
+        return out
 
 
 UNKNOWN_KEYWORD = N_("{path}/{kw} : mot-clé inconnu")
@@ -452,6 +456,20 @@ class Validator:
             return
         if entity == "GROUP_NO" and (name in self.mesh_groups.get("GROUP_MA", set()) or name in self.created_groups["GROUP_MA"]):
             return  # Code_Aster accepte un groupe de mailles là où il attend des nœuds
+        # Même nom à la casse près (Code_Aster distingue « Charge » et « charge ») : correction proposée.
+        known = self.mesh_groups.get(entity, set()) | self.created_groups[entity]
+        if entity == "GROUP_NO":
+            known = known | self.mesh_groups.get("GROUP_MA", set()) | self.created_groups["GROUP_MA"]
+        same = sorted({g for g in known if g.casefold() == name.casefold()})
+        if len(same) == 1:
+            template = (
+                N_("{path} : groupe de mailles « {name} » absent du maillage, « {suggestion} » existe")
+                if entity == "GROUP_MA"
+                else N_("{path} : groupe de nœuds « {name} » absent du maillage, « {suggestion} » existe")
+            )
+            issues.append(Issue("error", template, {"path": path, "name": name, "suggestion": same[0]},
+                                fix={"kind": "group_case", "from": name, "to": same[0]}))
+            return
         template = (
             N_("{path} : groupe de mailles « {name} » absent du maillage") if entity == "GROUP_MA"
             else N_("{path} : groupe de nœuds « {name} » absent du maillage")

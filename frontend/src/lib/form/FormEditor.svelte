@@ -39,9 +39,18 @@
     app.touch();
   }
 
+  // Nom au début de la saisie : à la validation (Entrée ou sortie du champ), les blocs
+  // suivants qui l'utilisaient sont mis à jour.
+  let renameFrom: string | null = null;
+
   function renameConcept(name: string) {
     block.concept = name.trim() || null;
     app.touch();
+  }
+
+  async function commitRename() {
+    await app.renameConcept(block.id, renameFrom, block.concept);
+    renameFrom = block.concept;
   }
 </script>
 
@@ -54,7 +63,9 @@
           id="concept-name"
           class="mono"
           value={block.concept ?? ""}
+          onfocus={() => (renameFrom = block.concept)}
           oninput={(e) => renameConcept(e.currentTarget.value)}
+          onchange={commitRename}
           spellcheck="false"
         />
         <span class="muted small">{t("nom à gauche du « = »")}</span>

@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..core import comm as commgen
-from ..core import forms, i18n, pyvalue
+from ..core import forms, i18n, pyvalue, refactor
 from ..core.comm_import import split_comm
 from ..core.i18n import t
 from ..core.model import DEFAULT_NAME, Block, Project
@@ -39,6 +39,19 @@ class TextBody(BaseModel):
 class NewBlockBody(BaseModel):
     command: str
     taken: list[str] = []
+
+
+class RenameBody(BaseModel):
+    blocks: list[Block]
+    index: int  # bloc qui définit le concept
+    old: str
+    new: str
+
+
+class GroupFixBody(BaseModel):
+    block: Block
+    old: str
+    new: str
 
 
 @router.get("/state")
@@ -162,6 +175,19 @@ def to_form(body: TextBody) -> dict:
 @router.post("/blocks/to_text")
 def to_text(block: Block) -> dict:
     return {"text": commgen.block_source(block.model_copy(update={"mode": "form"}))}
+
+
+@router.post("/blocks/rename_concept")
+def rename_concept(body: RenameBody) -> dict:
+    """Propage le nouveau nom d'un concept aux blocs qui le référencent."""
+    blocks, count = refactor.rename_concept(body.blocks, body.index, body.old, body.new)
+    return {"blocks": blocks, "count": count}
+
+
+@router.post("/blocks/replace_group")
+def replace_group(body: GroupFixBody) -> dict:
+    block, count = refactor.replace_group(body.block, body.old, body.new)
+    return {"block": block, "count": count}
 
 
 @router.get("/settings")
