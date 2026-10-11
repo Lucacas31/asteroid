@@ -1,10 +1,11 @@
 <script lang="ts">
   // Gestionnaire des runs du projet : tableau, détails d'un run, comparaison de deux runs.
   import { untrack } from "svelte";
-  import { api, type Captures, type Headline, type RunFile, type RunSummary } from "./api";
+  import { api, type Headline, type RunFile, type RunSummary } from "./api";
   import CodeEditor from "./CodeEditor.svelte";
   import { formatValue } from "./format";
   import Icon from "./Icon.svelte";
+  import CompareView from "./CompareView.svelte";
   import ResultPanel from "./ResultPanel.svelte";
   import { app, formatSize, statusLabel } from "./store.svelte";
   import { i18n, t } from "./i18n.svelte";
@@ -20,10 +21,44 @@
   let checked = $state<string[]>([]);
   let files = $state<RunFile[]>([]);
   let viewing = $state<{ name: string; text: string } | null>(null);
-  let comparing = $state<{ a: RunSummary; b: RunSummary; diff: string[] } | null>(null);
-  let pair = $state<Record<string, Captures> | null>(null);
-  let pairWorking = $state(false);
-  let pairStamp = $state(0);
+  let comparing = $state<string[] | null>(null); // runs comparés, du plus ancien au plus récent
+
+  // Largeur du détail, réglable en tirant la séparation (retenue par ce navigateur).
+  const WIDTH_KEY = "asteroid.runsDetailWidth";
+  let runsEl = $state<HTMLDivElement>();
+  let detailWidth = $state<number | null>(readWidth());
+
+  function readWidth(): number | null {
+    try {
+      const v = Number(localStorage.getItem(WIDTH_KEY));
+      return v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function startResize(e: PointerEvent) {
+    if (!runsEl) return;
+    e.preventDefault();
+    const box = runsEl.getBoundingClientRect();
+    const move = (ev: PointerEvent) => {
+      detailWidth = Math.round(Math.min(Math.max(box.right - ev.clientX, 320), box.width - 160));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        if (detailWidth) localStorage.setItem(WIDTH_KEY, String(detailWidth));
+      } catch {
+        /* stockage indisponible : largeur oubliée au prochain lancement */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  /** Runs cochés, du plus ancien au plus récent (le plus ancien sert de référence). */
+  let checkedOrdered = $derived(app.history.filter((r) => checked.includes(r.id)).map((r) => r.id).reverse());
   let note = $state("");
 
   let current = $derived(app.history.find((r) => r.id === selected) ?? null);
@@ -66,29 +101,8 @@
     }
   }
 
-  async function compare() {
-    // Le plus ancien à gauche : le diff se lit « avant → après ».
-    const [a, b] = app.history.filter((r) => checked.includes(r.id)).reverse();
-    try {
-      comparing = { a, b, diff: (await api.compareRuns(a.id, b.id)).diff };
-      pair = null;
-    } catch (e) {
-      app.error(e);
-    }
-  }
-
-  /** Captures des deux runs avec les mêmes vues, la même échelle de couleurs et la même amplification. */
-  async function compareShots() {
-    if (!comparing) return;
-    pairWorking = true;
-    try {
-      pair = await api.compareCaptures(comparing.a.id, comparing.b.id);
-      pairStamp = Date.now();
-    } catch (e) {
-      app.error(e);
-    } finally {
-      pairWorking = false;
-    }
+  function compare() {
+    comparing = checkedOrdered;
   }
 
   async function remove(ids: string[]) {
@@ -116,24 +130,22 @@
     return iso.replace("T", " ");
   }
 
-  function lineClass(line: string): string {
-    if (line.startsWith("@@")) return "hunk";
-    if (line.startsWith("+")) return "add";
-    if (line.startsWith("-")) return "del";
-    return "";
-  }
 </script>
 
 {#if app.history.length}
-  <div class="runs">
+  <div class="runs" bind:this={runsEl}>
     <div class="list">
       <!-- Barre toujours affichée : cocher un run ne décale pas les lignes sous le curseur. -->
       <div class="bulk" class:on={checked.length > 0}>
         <span class="muted">
-          {checked.length ? t("{count} sélectionné(s)", { count: checked.length }) : t("Cocher deux runs pour les comparer")}
+          {checked.length ? t("{count} sélectionné(s)", { count: checked.length }) : t("Cocher des runs pour les comparer")}
         </span>
-        <button class="small" disabled={checked.length !== 2} onclick={compare} title={t("Comparer deux runs")}>
+        <button class="small" disabled={checked.length < 2} onclick={compare} title={t("Comparer les runs cochés")}>
           {t("Comparer")}
+        </button>
+        <button class="small" disabled={checked.length < 2} onclick={() => app.openCompare(checkedOrdered)}
+                title={t("Comparer dans une grande fenêtre")}>
+          <Icon name="eye" size={13} />{t("Fenêtre")}
         </button>
         <button class="small danger" disabled={!checked.length} onclick={() => remove(checked)}>
           <Icon name="trash" size={13} />{t("Supprimer")}
@@ -177,63 +189,14 @@
       </table>
     </div>
 
-    <div class="detail">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="splitter" onpointerdown={startResize} title={t("Tirer pour élargir le détail")}></div>
+    <div class="detail" class:sized={detailWidth !== null} style:width={detailWidth ? `${detailWidth}px` : undefined}>
       {#if comparing}
-        <div class="head">
-          <strong class="mono">{comparing.a.id} → {comparing.b.id}</strong>
-          <span class="spacer"></span>
-          <button class="ghost icon" onclick={() => (comparing = null)} title={t("Fermer")}><Icon name="close" size={14} /></button>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div ondblclick={() => comparing && app.openCompare(comparing)} title={t("Double-clic : comparer dans une grande fenêtre")}>
+          {#key comparing.join(",")}<CompareView ids={comparing} onclose={() => (comparing = null)} />{/key}
         </div>
-        <table class="pair">
-          <tbody>
-            <tr><th>{t("Note")}</th><td>{comparing.a.note}</td><td>{comparing.b.note}</td></tr>
-            <tr><th>{t("Profil")}</th><td>{app.profileLabel(comparing.a.profile)}</td><td>{app.profileLabel(comparing.b.profile)}</td></tr>
-            <tr>
-              <th>{t("Statut")}</th>
-              <td><span class="badge {comparing.a.status}">{statusLabel(comparing.a.status)}</span></td>
-              <td><span class="badge {comparing.b.status}">{statusLabel(comparing.b.status)}</span></td>
-            </tr>
-            <tr><th>{t("Durée")}</th><td>{comparing.a.duration ?? "—"} s</td><td>{comparing.b.duration ?? "—"} s</td></tr>
-            <tr>
-              <th>{t("Dépl. max")}</th>
-              <td>{fmt(comparing.a.headline?.depl_max)} {units(comparing.a)[0]}</td>
-              <td>{fmt(comparing.b.headline?.depl_max)} {units(comparing.b)[0]}</td>
-            </tr>
-            <tr>
-              <th>{t("σVM max")}</th>
-              <td>{fmt(comparing.a.headline?.vmis_max)} {units(comparing.a)[1]}</td>
-              <td>{fmt(comparing.b.headline?.vmis_max)} {units(comparing.b)[1]}</td>
-            </tr>
-            <tr><th>{t("RF min")}</th><td>{fmt(comparing.a.headline?.rf_min)}</td><td>{fmt(comparing.b.headline?.rf_min)}</td></tr>
-          </tbody>
-        </table>
-        <div class="section">
-          {t("Captures")}
-          <span class="spacer"></span>
-          <button class="ghost small" onclick={compareShots} disabled={pairWorking || !app.settings?.capture_command}
-                  title={app.settings?.capture_command ? "" : t("Captures : régler la commande pvbatch dans les réglages globaux.")}>
-            {pairWorking ? t("Captures en cours…") : t("Mêmes vues, même échelle")}
-          </button>
-        </div>
-        {#if pair}
-          {@const ca = pair[comparing.a.id]}
-          {@const cb = pair[comparing.b.id]}
-          {#if ca?.error || cb?.error}<p class="warn pad small">{ca?.error ?? cb?.error}</p>{/if}
-          <div class="pairs">
-            {#each ca?.views ?? [] as v (v)}
-              <img src={api.captureUrl(comparing.a.id, "cmp", v, pairStamp)} alt={`${comparing.a.id} ${v}`} />
-              <img src={api.captureUrl(comparing.b.id, "cmp", v, pairStamp)} alt={`${comparing.b.id} ${v}`} />
-            {/each}
-          </div>
-        {/if}
-        <div class="section">{t("Différences du .comm")}</div>
-        {#if comparing.diff.length}
-          <div class="diff mono">
-            {#each comparing.diff as line, i (i)}<div class={lineClass(line)}>{line || " "}</div>{/each}
-          </div>
-        {:else}
-          <p class="muted pad">{t("Les deux .comm sont identiques.")}</p>
-        {/if}
       {:else if current}
         <div class="head">
           <strong class="mono">{current.id}</strong>
@@ -392,9 +355,22 @@
   .detail > * {
     flex: none;
   }
-  .detail > .viewer,
-  .detail > .diff {
+  .detail > .viewer {
     flex: 1;
+  }
+  .detail.sized {
+    flex: none;
+    max-width: none;
+  }
+  .splitter {
+    width: 5px;
+    margin: 0 -2px;
+    z-index: 1;
+    cursor: col-resize;
+    flex: none;
+  }
+  .splitter:hover {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .note-input {
     margin: 0 10px 6px;
@@ -433,33 +409,6 @@
     flex: 1;
     min-height: 160px;
   }
-  .pair th {
-    position: static;
-    width: 80px;
-  }
-  .pair td {
-    white-space: normal;
-  }
-  .diff {
-    white-space: pre;
-    padding: 6px 10px;
-    font-size: 11.5px;
-    line-height: 1.45;
-    background: var(--code-bg);
-    overflow: auto;
-    flex: 1;
-  }
-  .diff .add {
-    color: var(--ok);
-    background: color-mix(in srgb, var(--ok) 10%, transparent);
-  }
-  .diff .del {
-    color: var(--err);
-    background: color-mix(in srgb, var(--err) 10%, transparent);
-  }
-  .diff .hunk {
-    color: var(--muted);
-  }
   .pad {
     padding: 0 10px;
   }
@@ -475,18 +424,6 @@
   }
   .warn {
     color: var(--warn);
-  }
-  .pairs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    padding: 4px 10px 10px;
-  }
-  .pairs img {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: #fff;
   }
   .empty {
     padding: 16px;

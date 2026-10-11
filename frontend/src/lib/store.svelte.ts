@@ -196,6 +196,26 @@ class AppStore {
     }
   }
 
+  /** Fenêtre de comparaison : traductions, réglages et runs du projet ouvert, sans maillage ni aperçu. */
+  async initCompare() {
+    try {
+      await i18n.load();
+      const snap = await api.state();
+      this.project = snap.project;
+      this.projectDir = snap.project_dir;
+      this.settings = snap.settings;
+      this.history = await api.runs();
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  /** Ouvre (ou réutilise) la fenêtre de comparaison des runs donnés, du plus ancien au plus récent. */
+  openCompare(ids: string[]) {
+    const url = `/?compare=${encodeURIComponent(ids.join(","))}`;
+    window.open(url, "asteroid-compare", "popup=yes,width=1500,height=950");
+  }
+
   #apply(snap: Snapshot, keepHistory = false) {
     this.project = snap.project;
     const json = JSON.stringify(snap.project);

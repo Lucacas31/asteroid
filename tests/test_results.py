@@ -65,6 +65,10 @@ def test_nice_factor_and_shared_params(tmp_path):
     p = captures.script_params(tmp_path / "b", b, shared)
     assert p["color"] == "r2______SIEQ_NOEU" and p["depl"] == "r2______DEPL"
     assert "None" in captures.SCRIPT.format(params=repr(p | {"depl": None}))  # littéral Python
+    # Même ensemble de runs (quel que soit l'ordre), mêmes paramètres : même dossier de captures.
+    key = captures.compare_key(["b", "a"], shared)
+    assert key == captures.compare_key(["a", "b"], shared) and captures.COMPARE_KEY.fullmatch(key)
+    assert key != captures.compare_key(["a", "b", "c"], shared)
 
 
 def test_suggest_capture_command():

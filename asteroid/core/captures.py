@@ -9,15 +9,17 @@ deux runs, les mêmes valeurs servent aux deux, d'où mêmes vues et même éche
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
+import re
 import shlex
 from pathlib import Path
 
 from .i18n import t
 
 CAPTURE_DIR = "captures"
-COMPARE_DIR = "cmp"
+COMPARE_KEY = re.compile(r"cmp-[0-9a-f]{10}")  # sous-dossier d'une comparaison (ensemble de runs)
 SCRIPT_NAME = "captures.py"
 TIMEOUT = 180
 # (nom, direction de la caméra vers le modèle, vecteur haut)
@@ -144,17 +146,28 @@ def script_params(run_dir: Path, summary: dict, shared: dict) -> dict:
     }
 
 
-def capture_dir(run_dir: Path, compare: bool = False) -> Path:
-    return run_dir / CAPTURE_DIR / (COMPARE_DIR if compare else "")
+def compare_key(run_ids: list[str], shared: dict) -> str:
+    """Sous-dossier des captures d'une comparaison : même ensemble de runs et mêmes paramètres,
+    même dossier (les captures déjà faites sont reprises)."""
+    data = json.dumps([sorted(run_ids), shared["bounds"], shared["range"], shared["factor"]], sort_keys=True)
+    return "cmp-" + hashlib.sha1(data.encode()).hexdigest()[:10]
 
 
-async def capture(run_dir: Path, summary: dict, shared: dict, command: str, compare: bool = False) -> dict:
-    """Lance pvbatch ; renvoie {"views": [...], "params": …} ou {"error": …}."""
+def capture_dir(run_dir: Path, compare: str | None = None) -> Path:
+    return run_dir / CAPTURE_DIR / (compare or "")
+
+
+async def capture(run_dir: Path, summary: dict, shared: dict, command: str, compare: str | None = None) -> dict:
+    """Lance pvbatch ; renvoie {"views": [...], "params": …} ou {"error": …}.
+    Une comparaison déjà capturée avec les mêmes paramètres est reprise telle quelle."""
     out = capture_dir(run_dir, compare)
+    params = script_params(run_dir, summary, shared)
+    done = capture_info(run_dir, compare)
+    if compare and done and done.get("params") == params and not done.get("error"):
+        return done
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
-    params = script_params(run_dir, summary, shared)
     script = out / SCRIPT_NAME
     script.write_text(SCRIPT.format(params=repr(params)))  # littéral Python (None, True), pas du JSON
     full = command.replace("{script}", shlex.quote(str(script.resolve())))
@@ -177,7 +190,7 @@ async def capture(run_dir: Path, summary: dict, shared: dict, command: str, comp
     return result
 
 
-def capture_info(run_dir: Path, compare: bool = False) -> dict | None:
+def capture_info(run_dir: Path, compare: str | None = None) -> dict | None:
     path = capture_dir(run_dir, compare) / "info.json"
     try:
         return json.loads(path.read_text())

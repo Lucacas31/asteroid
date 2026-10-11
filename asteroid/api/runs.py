@@ -30,9 +30,8 @@ class NoteBody(BaseModel):
     note: str
 
 
-class PairBody(BaseModel):
-    a: str
-    b: str
+class IdsBody(BaseModel):
+    ids: list[str]  # runs comparés ; le premier sert de référence
 
 
 def _root() -> Path:
@@ -77,9 +76,14 @@ async def start(body: StartBody | None = None) -> dict:
 
 
 @router.get("/compare")
-async def compare(a: str, b: str) -> dict:
-    _dir(a), _dir(b)
-    return {"diff": runner.compare_comm(_root(), a, b)}
+async def compare(ids: str) -> dict:
+    """Différences du .comm de chaque run par rapport au premier (la référence)."""
+    runs = [i for i in ids.split(",") if i]
+    if len(runs) < 2:
+        raise HTTPException(400, t("Choisir au moins deux runs"))
+    for r in runs:
+        _dir(r)
+    return {"reference": runs[0], "diffs": {r: runner.compare_comm(_root(), runs[0], r) for r in runs[1:]}}
 
 
 def _summary(run_id: str) -> tuple[Path, dict]:
@@ -89,17 +93,20 @@ def _summary(run_id: str) -> tuple[Path, dict]:
 
 
 @router.post("/compare/captures")
-async def compare_captures(body: PairBody) -> dict:
-    """Captures des deux runs avec les mêmes vues, la même échelle et la même amplification."""
+async def compare_captures(body: IdsBody) -> dict:
+    """Captures des runs avec les mêmes vues, la même échelle et la même amplification."""
     command = state.settings.capture_command
     if not command:
         raise HTTPException(400, t("Commande des captures (pvbatch) non réglée"))
-    items = [_summary(body.a), _summary(body.b)]
+    items = [_summary(r) for r in body.ids]
     shared = captures.params_for(items)
     if shared is None:
-        raise HTTPException(404, t("Pas de résultat à montrer dans l'un des deux runs"))
-    return {rid: await captures.capture(path, summary, shared, command, compare=True)
-            for rid, (path, summary) in zip((body.a, body.b), items)}
+        raise HTTPException(404, t("Pas de résultat à montrer dans l'un des runs"))
+    key = captures.compare_key(body.ids, shared)
+    shots = {}
+    for rid, (path, summary) in zip(body.ids, items):
+        shots[rid] = await captures.capture(path, summary, shared, command, compare=key)
+    return {"key": key, "runs": shots}
 
 
 @router.get("/{run_id}")
@@ -156,9 +163,9 @@ async def make_captures(run_id: str) -> dict:
 @router.get("/{run_id}/captures/{kind}/{view}.png")
 async def capture_image(run_id: str, kind: str, view: str) -> FileResponse:
     names = {name for name, _, _ in captures.VIEWS}
-    if kind not in ("run", "cmp") or view not in names:
+    if not (kind == "run" or captures.COMPARE_KEY.fullmatch(kind)) or view not in names:
         raise HTTPException(404, t("Capture inconnue"))
-    image = captures.capture_dir(_dir(run_id), compare=kind == "cmp") / f"{view}.png"
+    image = captures.capture_dir(_dir(run_id), None if kind == "run" else kind) / f"{view}.png"
     if not image.is_file():
         raise HTTPException(404, t("Capture inconnue"))
     return FileResponse(image, media_type="image/png", headers={"Cache-Control": "no-cache"})

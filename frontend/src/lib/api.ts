@@ -386,14 +386,16 @@ export const api = {
   runSummary: (id: string) =>
     request<{ summary: ResultSummary; captures: Captures }>("GET", `/api/runs/${encodeURIComponent(id)}/summary`),
   makeCaptures: (id: string) => request<Captures>("POST", `/api/runs/${encodeURIComponent(id)}/captures`),
-  compareCaptures: (a: string, b: string) =>
-    request<Record<string, Captures>>("POST", "/api/runs/compare/captures", { a, b }),
-  captureUrl: (id: string, kind: "run" | "cmp", view: string, stamp: number) =>
+  /** Captures des runs avec mêmes vues, même échelle ; `key` : dossier de la comparaison (cmp-…). */
+  compareCaptures: (ids: string[]) =>
+    request<{ key: string; runs: Record<string, Captures> }>("POST", "/api/runs/compare/captures", { ids }),
+  captureUrl: (id: string, kind: string, view: string, stamp: number) =>
     `/api/runs/${encodeURIComponent(id)}/captures/${kind}/${view}.png?t=${stamp}`,
   captureSuggestion: (paraview: string) =>
     request<{ command: string }>("GET", `/api/settings/capture_suggestion?paraview=${encodeURIComponent(paraview)}`),
-  compareRuns: (a: string, b: string) =>
-    request<{ diff: string[] }>("GET", `/api/runs/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  /** Différences du .comm de chaque run par rapport au premier (la référence). */
+  compareRuns: (ids: string[]) =>
+    request<{ reference: string; diffs: Record<string, string[]> }>("GET", `/api/runs/compare?ids=${encodeURIComponent(ids.join(","))}`),
   runInfo: (id: string) => request<RunInfo>("GET", `/api/runs/${encodeURIComponent(id)}`),
   stopRun: (id: string) => request<{ stopped: boolean }>("POST", `/api/runs/${encodeURIComponent(id)}/stop`),
   paraview: (id: string) =>

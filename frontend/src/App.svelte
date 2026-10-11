@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import BlockEditor from "./lib/BlockEditor.svelte";
   import BlockList from "./lib/BlockList.svelte";
+  import CompareWindow from "./lib/CompareWindow.svelte";
   import BottomPanel from "./lib/BottomPanel.svelte";
   import FilePicker from "./lib/FilePicker.svelte";
   import ImportDialog from "./lib/ImportDialog.svelte";
@@ -16,7 +17,12 @@
   import { t } from "./lib/i18n.svelte";
   import { app } from "./lib/store.svelte";
 
-  onMount(() => app.init());
+  // /?compare=a,b,c : fenêtre de comparaison de runs, sans le reste de l'interface.
+  const compareIds = new URLSearchParams(location.search).get("compare")?.split(",").filter(Boolean) ?? null;
+
+  onMount(() => {
+    if (!compareIds) app.init();
+  });
 
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
@@ -41,26 +47,32 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} onfocus={() => app.refreshMesh()} />
-<svelte:head><title>{t(app.project.name)} — Asteroid</title></svelte:head>
+<!-- Raccourcis et titre de la fenêtre principale ; la fenêtre de comparaison a les siens. -->
+<svelte:window onkeydown={(e) => !compareIds && onKey(e)} onfocus={() => !compareIds && app.refreshMesh()} />
+<svelte:head>{#if !compareIds}<title>{t(app.project.name)} — Asteroid</title>{/if}</svelte:head>
 
-<div class="layout">
-  <TopBar />
-  <BlockList />
-  <MeshPanel />
-  <BlockEditor />
-  <BottomPanel />
-  <StatusBar />
-</div>
+{#if compareIds}
+  <CompareWindow ids={compareIds} />
+{:else}
 
-{#if app.settingsOpen && app.settings}<SettingsDialog />{/if}
-{#if app.importOpen}<ImportDialog />{/if}
-{#if app.materialsOpen}<MaterialLibrary />{/if}
-{#if app.profilesOpen && app.settings}<ProfilesDialog />{/if}
-{#if app.settings && !app.settings.configured}<SetupDialog />{/if}
-{#if app.picker}<FilePicker />{/if}
-{#if app.notice}
-  <div class="notice {app.notice.kind}" role="status">{app.notice.text}</div>
+  <div class="layout">
+    <TopBar />
+    <BlockList />
+    <MeshPanel />
+    <BlockEditor />
+    <BottomPanel />
+    <StatusBar />
+  </div>
+
+  {#if app.settingsOpen && app.settings}<SettingsDialog />{/if}
+  {#if app.importOpen}<ImportDialog />{/if}
+  {#if app.materialsOpen}<MaterialLibrary />{/if}
+  {#if app.profilesOpen && app.settings}<ProfilesDialog />{/if}
+  {#if app.settings && !app.settings.configured}<SetupDialog />{/if}
+  {#if app.picker}<FilePicker />{/if}
+  {#if app.notice}
+    <div class="notice {app.notice.kind}" role="status">{app.notice.text}</div>
+  {/if}
 {/if}
 
 <style>
