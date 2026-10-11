@@ -14,6 +14,10 @@ dependencies = [
     "numpy>=1.26",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Lucacas31/asteroid"
+Issues = "https://github.com/Lucacas31/asteroid/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27", "gmsh>=4.12"]
 
