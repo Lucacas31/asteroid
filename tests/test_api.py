@@ -10,7 +10,7 @@ def client():
     from asteroid.server import app
 
     state_module.state.__init__()  # état neuf, réglages dans le dossier isolé
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def test_project_flow(client, tmp_path, cube_med):
@@ -81,3 +81,24 @@ def test_import_comm(client, tmp_path):
     assert [b["command"] for b in data["blocks"]] == ["LIRE_MAILLAGE", "IMPR_RESU"]
     r = client.post("/api/comm/import", json={"text": "x = ("})
     assert r.status_code == 422 and "ligne 1" in r.json()["detail"]
+
+
+def test_foreign_host_or_origin_refused(client):
+    assert client.get("/api/state").status_code == 200
+    assert client.get("/api/state", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 200
+    # DNS rebinding : nom étranger qui pointe vers 127.0.0.1.
+    assert client.get("/api/settings", headers={"Host": "evil.test:8765"}).status_code == 403
+    # Requête d'une autre page ouverte dans le navigateur.
+    assert client.post("/api/runs", headers={"Origin": "https://evil.test"}).status_code == 403
+    assert client.post("/api/runs", headers={"Origin": "null"}).status_code == 403
+
+
+def test_rename_and_group_fix_routes(client):
+    blocks = [
+        {"command": "DEFI_MATERIAU", "concept": "pla", "mode": "form", "params": {}},
+        {"mode": "text", "text": "chmat = AFFE_MATERIAU(MAILLAGE=mail, AFFE=_F(GROUP_MA='vol', MATER=mat))"},
+    ]
+    res = client.post("/api/blocks/rename_concept", json={"blocks": blocks, "index": 0, "old": "mat", "new": "pla"}).json()
+    assert res["count"] == 1 and "MATER=pla" in res["blocks"][1]["text"]
+    res = client.post("/api/blocks/replace_group", json={"block": res["blocks"][1], "old": "vol", "new": "VOL"}).json()
+    assert res["count"] == 1 and "GROUP_MA='VOL'" in res["block"]["text"]

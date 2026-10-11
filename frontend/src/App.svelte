@@ -11,6 +11,7 @@
   import SetupDialog from "./lib/SetupDialog.svelte";
   import StatusBar from "./lib/StatusBar.svelte";
   import TopBar from "./lib/TopBar.svelte";
+  import { editable } from "./lib/editable";
   import { t } from "./lib/i18n.svelte";
   import { app } from "./lib/store.svelte";
 
@@ -18,7 +19,12 @@
 
   function onKey(e: KeyboardEvent) {
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === "s") {
+    const key = e.key.toLowerCase();
+    if (mod && (key === "z" || key === "y") && !editable(e.target)) {
+      e.preventDefault();
+      if (key === "y" || e.shiftKey) app.redo();
+      else app.undo();
+    } else if (mod && key === "s") {
       e.preventDefault();
       app.save();
     } else if (mod && e.key === "Enter") {
@@ -28,6 +34,7 @@
       app.settingsOpen = false;
       app.importOpen = false;
       app.materialsOpen = false;
+      app.problemsOpen = null;
     }
   }
 </script>

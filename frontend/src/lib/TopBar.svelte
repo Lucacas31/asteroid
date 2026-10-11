@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
+  import ProblemsPanel from "./ProblemsPanel.svelte";
   import { app } from "./store.svelte";
   import { t } from "./i18n.svelte";
 
@@ -72,9 +73,18 @@
       <Icon name="cube" />
       {app.project.mesh ?? t("Choisir un maillage…")}
     </button>
+    <div class="history">
+      <button class="ghost icon" disabled={!app.canUndo} onclick={() => app.undo()} title={t("Annuler (Ctrl+Z)")}>
+        <Icon name="undo" />
+      </button>
+      <button class="ghost icon" disabled={!app.canRedo} onclick={() => app.redo()} title={t("Rétablir (Ctrl+Maj+Z)")}>
+        <Icon name="redo" />
+      </button>
+    </div>
   </div>
 
   <div class="right">
+    <ProblemsPanel />
     {#if app.running}
       <button class="stop" onclick={() => app.stopRun()} title={t("Arrêter le run")}>
         <Icon name="stop" filled size={12} />Stop
@@ -136,6 +146,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--muted);
+  }
+  .history {
+    display: flex;
+    gap: 2px;
   }
   .stop {
     background: var(--err);

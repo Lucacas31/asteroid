@@ -11,7 +11,9 @@ import json
 import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from .model import Persisted
 
 DEFAULT_IMAGE = "simvia/code_aster:stable"
 
@@ -63,7 +65,7 @@ def user_dir(name: str) -> Path:
     return (home if home else config_dir()) / name
 
 
-class Settings(BaseModel):
+class Settings(Persisted):
     docker_image: str = DEFAULT_IMAGE  # variable {image} des commandes
     run_command: str = DEFAULT_RUN_COMMAND
     stop_command: str = DEFAULT_STOP_COMMAND

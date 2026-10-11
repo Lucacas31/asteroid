@@ -96,7 +96,14 @@ export interface BlockInfo {
   error: string | null;
   start_line: number;
   end_line: number;
-  issues: { level: "error" | "warning"; message: string }[];
+  issues: Issue[];
+}
+
+/** Message du validateur ; `fix` : correction proposée (casse d'un nom de groupe). */
+export interface Issue {
+  level: "error" | "warning";
+  message: string;
+  fix?: { kind: "group_case"; from: string; to: string };
 }
 
 export interface CatalogCommand {
@@ -267,6 +274,10 @@ export const api = {
       { text },
     ),
   toText: (block: Block) => request<{ text: string }>("POST", "/api/blocks/to_text", block),
+  renameConcept: (blocks: Block[], index: number, old: string, name: string) =>
+    request<{ blocks: Block[]; count: number }>("POST", "/api/blocks/rename_concept", { blocks, index, old, new: name }),
+  replaceGroup: (block: Block, old: string, name: string) =>
+    request<{ block: Block; count: number }>("POST", "/api/blocks/replace_group", { block, old, new: name }),
   newBlock: (command: string, taken: string[]) =>
     request<Block>("POST", "/api/blocks/new", { command, taken }),
   getSettings: () => request<Settings>("GET", "/api/settings"),

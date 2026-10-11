@@ -1,5 +1,6 @@
 <script lang="ts">
   import CodeEditor from "./CodeEditor.svelte";
+  import { editable } from "./editable";
   import { asterCompletion } from "./completion";
   import FormEditor from "./form/FormEditor.svelte";
   import { docUrl } from "./forms";
@@ -38,7 +39,13 @@
   }
 </script>
 
-<section>
+<!-- Focus dans l'éditeur : le module d'erreurs attend la fin de la saisie. -->
+<section
+  onfocusin={(e) => (app.editingId = editable(e.target) ? (block?.id ?? null) : null)}
+  onfocusout={(e) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) app.editingId = null;
+  }}
+>
   {#if block}
     <div class="head">
       <div class="title mono">
@@ -77,7 +84,7 @@
       </div>
     {/if}
     <div class="body">
-      {#key block.id + block.mode}
+      {#key `${block.id}:${block.mode}:${app.revision}`}
         {#if block.mode === "form"}
           <FormEditor {block} />
         {:else}
@@ -91,6 +98,11 @@
           <div class="issue">
             <span class="badge {v.level === 'error' ? 'F' : 'A'}">{v.level === "error" ? t("erreur") : t("attention")}</span>
             <span class="mono small">{v.message}</span>
+            {#if v.fix}
+              <button class="fix" onclick={() => app.fixGroup(block.id, v.fix!)}>
+                <Icon name="check" size={13} />{t("Corriger en « {name} »", { name: v.fix.to })}
+              </button>
+            {/if}
           </div>
         {/each}
         {#if missing.length}
@@ -210,6 +222,12 @@
     display: flex;
     gap: 8px;
     align-items: flex-start;
+  }
+  .fix {
+    flex: none;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 11.5px;
   }
   .issue pre {
     margin: 2px 0 0;
