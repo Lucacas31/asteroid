@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -48,11 +49,14 @@ def command(name: str) -> dict:
 async def update() -> dict:
     """Exporte le catalogue depuis l'image Docker et l'installe dans ~/.config/asteroid."""
     with tempfile.TemporaryDirectory(prefix="asteroid-cata-") as tmp:
+        # Copie : dans une AppImage, le paquet est un montage FUSE que le démon Docker (root) ne lit pas.
+        script = Path(tmp) / SCRIPT.name
+        shutil.copyfile(SCRIPT, script)
         command = substitute(
             state.settings.catalog_command,
             {
                 "out_dir": shlex.quote(tmp),
-                "script": shlex.quote(str(SCRIPT)),
+                "script": shlex.quote(str(script)),
                 "image": state.settings.docker_image,
             },
         )
