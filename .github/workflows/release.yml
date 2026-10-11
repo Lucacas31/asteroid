@@ -22,7 +22,7 @@ jobs:
       - name: Tests
         run: |
           uv venv && uv pip install -e ".[dev]"
-          (cd frontend && npm ci && npm run build)
+          (cd frontend && npm ci && npx svelte-check --tsconfig ./tsconfig.json && npm test && npm run build)
           .venv/bin/pytest -q
       - name: Archive portable
         run: scripts/build-portable.sh dist
