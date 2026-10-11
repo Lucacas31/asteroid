@@ -1,4 +1,4 @@
-# Archive portable Linux construite et jointe à la release quand un tag v* est poussé.
+# Archive portable et AppImage Linux construites et jointes à la release quand un tag v* est poussé.
 name: release
 
 on:
@@ -26,9 +26,12 @@ jobs:
           .venv/bin/pytest -q
       - name: Archive portable
         run: scripts/build-portable.sh dist
+      - name: AppImage
+        run: scripts/build-appimage.sh dist dist/asteroid-*.whl
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
+            dist/*.AppImage
             dist/*.whl
             dist/*.sha256

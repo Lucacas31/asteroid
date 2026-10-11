@@ -1,0 +1,11 @@
+#!/bin/sh
+# Point d'entrée de l'AppImage d'Asteroid.
+#
+# Le Python embarqué est appelé directement : aucune variable PYTHON* ni LD_LIBRARY_PATH,
+# qui passeraient aux commandes lancées par l'app (Docker, ParaView et son propre Python).
+# Pas d'ASTEROID_HOME : l'AppImage est en lecture seule, les données vont dans
+# ~/.config/asteroid (ou dans le dossier <AppImage>.config s'il existe à côté du fichier).
+here="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+# Lanceur du menu : le fichier .AppImage lui-même, pas le montage temporaire.
+export ASTEROID_LAUNCHER="${APPIMAGE:-$here/AppRun}"
+exec "$here/usr/python/bin/python3" -I -m asteroid.cli "$@"

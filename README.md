@@ -14,6 +14,27 @@ Interface en français ou en anglais. Linux uniquement.
 
 ## Installation
 
+### AppImage (le plus simple)
+
+Télécharger `Asteroid-x86_64.AppImage` depuis la page [Releases](../../releases), le rendre exécutable et le lancer :
+
+```bash
+chmod +x Asteroid-x86_64.AppImage
+./Asteroid-x86_64.AppImage
+```
+
+Un seul fichier : Python et les dépendances sont dedans, aucune connexion internet n'est nécessaire au lancement. Un lanceur « Asteroid » est ajouté au menu des applications (il pointe vers le fichier : après l'avoir déplacé, le relancer une fois).
+
+Réglages et bibliothèque de matériaux vont dans `~/.config/asteroid/` (voir [Fichiers](#fichiers)).
+
+**Mise à jour** : remplacer le fichier par la nouvelle version. Réglages, matériaux et projets sont conservés.
+
+**Mode portable** (clé USB…) : créer un dossier `Asteroid-x86_64.AppImage.config` à côté du fichier ; réglages et matériaux iront alors dans ce dossier. Garder le même nom de fichier lors des mises à jour.
+
+Sur une distribution sans FUSE, lancer avec `--appimage-extract-and-run`.
+
+### Archive
+
 1. Télécharger l'archive `asteroid-<version>-linux.tar.gz` depuis la page [Releases](../../releases).
 2. L'extraire où l'on veut, puis lancer `asteroid` :
 
@@ -33,7 +54,7 @@ Autre possibilité, sans dossier : installer le wheel de la release avec `pipx i
 | Outil | Rôle | Obligatoire |
 |---|---|---|
 | Linux | | oui |
-| Python 3.11 ou plus avec le module venv (Debian/Ubuntu : `sudo apt install python3-venv`), ou uv | exécution d'Asteroid | oui |
+| Python 3.11 ou plus avec le module venv (Debian/Ubuntu : `sudo apt install python3-venv`), ou uv | exécution d'Asteroid | sauf AppImage |
 | Code_Aster, par exemple l'image Docker `simvia/code_aster:stable` (17.4) | calcul | oui |
 | [ParaView](https://www.paraview.org/download/) avec le plugin MEDReader (inclus dans les binaires officiels) | résultats | non |
 | Chrome ou Chromium | fenêtre dédiée ; sinon le navigateur par défaut | non |
@@ -74,6 +95,20 @@ Avec une installation locale de Code_Aster, la commande se réduit à `run_aster
 ParaView ne lit les `.rmed` qu'une fois le plugin MEDReader chargé : la valeur par défaut `paraview --script={script}` s'en charge.
 
 ## Fichiers
+
+Données de l'utilisateur (AppImage, wheel, sources) :
+
+```
+~/.config/asteroid/
+├── settings.json     réglages globaux (commandes, profils de run, projets récents, langue)
+├── materiaux/        bibliothèque de matériaux : un fichier JSON par matériau
+├── langues/          traductions ajoutées
+└── catalog_*.json    catalogue réexporté depuis votre version de Code_Aster
+```
+
+À côté : le profil de la fenêtre dans `~/.cache/asteroid/` (ou `~/snap/chromium/common/asteroid-profile` avec le Chromium en snap) et le lanceur du menu dans `~/.local/share/applications/`. *Réglages globaux* affiche le dossier des réglages.
+
+Pour passer de l'archive à l'AppImage, copier `config/settings.json`, `materiaux/` et `langues/` du dossier de l'archive dans `~/.config/asteroid/`.
 
 Dossier de l'app (archive) :
 
@@ -146,6 +181,7 @@ Réglages et bibliothèque vont alors dans `~/.config/asteroid/`. Autres command
 .venv/bin/pytest                       # tests ; le cas réel tourne dans Docker si l'image est présente
 cd frontend && npm run dev             # interface sur :5173, /api relayé vers le serveur sur :8765
 scripts/build-portable.sh              # archive et wheel dans dist/
+scripts/build-appimage.sh              # AppImage dans dist/ (télécharge Python et appimagetool)
 scripts/asteroid-test.sh [projet]      # sources sans compiler (Vite) sur :5180, à côté de l'instance habituelle
 ```
 
