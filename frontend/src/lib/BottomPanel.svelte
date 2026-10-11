@@ -1,6 +1,7 @@
 <script lang="ts">
   import CodeEditor from "./CodeEditor.svelte";
   import Icon from "./Icon.svelte";
+  import RunsPanel from "./RunsPanel.svelte";
   import { app, statusLabel, type BottomTab } from "./store.svelte";
   import { N_, t } from "./i18n.svelte";
 
@@ -8,7 +9,7 @@
     { id: "comm", label: N_("Aperçu .comm") },
     { id: "export", label: ".export" },
     { id: "log", label: N_("Log du run") },
-    { id: "history", label: N_("Historique") },
+    { id: "history", label: N_("Runs") },
   ];
 
   let logEl = $state<HTMLPreElement>();
@@ -62,10 +63,6 @@
       app.bottomTab = id;
       app.bottomOpen = true;
     }
-  }
-
-  function formatDate(iso: string): string {
-    return iso.replace("T", " ");
   }
 </script>
 
@@ -167,29 +164,7 @@
           <div class="empty muted">{t("Aucun run affiché. Lance un calcul (Ctrl+Entrée) ou choisis un run dans l'historique.")}</div>
         {/if}
       {:else if app.bottomTab === "history"}
-        {#if app.history.length}
-          <table>
-            <thead>
-              <tr><th>Run</th><th>{t("Date")}</th><th>{t("Statut")}</th><th>{t("Durée")}</th><th></th></tr>
-            </thead>
-            <tbody>
-              {#each app.history as r (r.id)}
-                <tr class:current={app.run?.id === r.id}>
-                  <td class="mono">{r.id}</td>
-                  <td>{formatDate(r.started)}</td>
-                  <td><span class="badge {r.status}">{statusLabel(r.status)}</span></td>
-                  <td>{r.duration != null ? `${r.duration} s` : "—"}</td>
-                  <td class="row-actions">
-                    <button class="ghost" onclick={() => app.showRun(r.id)}><Icon name="file" size={14} />{t("Log")}</button>
-                    <button class="ghost" onclick={() => app.openParaview(r.id)}><Icon name="eye" size={14} />ParaView</button>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <div class="empty muted">{t("Aucun run pour ce projet.")}</div>
-        {/if}
+        <RunsPanel />
       {/if}
     </div>
   {/if}
@@ -330,34 +305,6 @@
   .msg .text {
     white-space: pre-wrap;
     font-size: 12px;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th,
-  td {
-    text-align: left;
-    padding: 5px 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  th {
-    font-weight: 500;
-    color: var(--muted);
-    font-size: 12px;
-    position: sticky;
-    top: 0;
-    background: var(--panel);
-  }
-  tr.current {
-    background: var(--accent-soft);
-  }
-  .row-actions {
-    text-align: right;
-  }
-  .content:has(table) {
-    overflow: auto;
-    display: block;
   }
   .empty {
     padding: 16px;

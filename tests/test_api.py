@@ -102,3 +102,43 @@ def test_rename_and_group_fix_routes(client):
     assert res["count"] == 1 and "MATER=pla" in res["blocks"][1]["text"]
     res = client.post("/api/blocks/replace_group", json={"block": res["blocks"][1], "old": "vol", "new": "VOL"}).json()
     assert res["count"] == 1 and "GROUP_MA='VOL'" in res["block"]["text"]
+
+
+def test_run_management_routes(client, tmp_path):
+    from asteroid import state as state_module
+    from asteroid.core.runner import run_path
+    from asteroid.core.settings import Settings
+
+    # Une seule boucle asyncio pour toutes les requêtes : le suivi du run y tourne.
+    with client:
+        client.post("/api/project/new", json={"dir": str(tmp_path / "p")})
+        state_module.state.settings = Settings(run_command="echo {run_id} > mesh.med; echo ok", stop_command="")
+        ids = []
+        for text in ("a = 1", "a = 2"):
+            project = client.get("/api/state").json()["project"]
+            project["blocks"] = [{"mode": "text", "text": text}]
+            client.put("/api/project", json=project)
+            ids.append(client.post("/api/runs", json={"profile": "Long"}).json()["id"])
+            client.get(f"/api/runs/{ids[-1]}/log")  # flux SSE lu jusqu'à la fin du run
+        history = client.get("/api/runs").json()
+        assert [r["id"] for r in history] == ids[::-1]
+        assert history[0]["profile"] == "Long" and history[0]["has_mesh"] and history[0]["size"] > 0
+
+        assert client.patch(f"/api/runs/{ids[0]}", json={"note": "E = 2300"}).status_code == 200
+        assert client.get(f"/api/runs/{ids[0]}").json()["note"] == "E = 2300"
+        names = {f["name"] for f in client.get(f"/api/runs/{ids[0]}/files").json()}
+        assert {"run.comm", "run.export", "run.log", "run.sh", "run.json"} <= names
+        assert "a = 1" in client.get(f"/api/runs/{ids[0]}/files/run.comm").text
+
+        diff = client.get("/api/runs/compare", params={"a": ids[0], "b": ids[1]}).json()["diff"]
+        assert "-a = 1" in diff and "+a = 2" in diff
+
+        assert client.post(f"/api/runs/{ids[0]}/lighten").json()["freed"] > 0
+        assert not client.get("/api/runs").json()[1]["has_mesh"]
+        assert client.delete(f"/api/runs/{ids[1]}").status_code == 200
+        assert [r["id"] for r in client.get("/api/runs").json()] == [ids[0]]
+        # Aucun identifiant ne sort du dossier des runs.
+        for bad in ("..", "../x", "a/b", ".cache"):
+            with pytest.raises(ValueError):
+                run_path(tmp_path, bad)
+        assert client.delete("/api/runs/.hidden").status_code == 400

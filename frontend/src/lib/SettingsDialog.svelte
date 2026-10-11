@@ -63,6 +63,9 @@
           <span>{t("Dossier des runs")}</span>
           <input bind:value={app.project.runs_dir} oninput={() => app.touch()} />
         </label>
+        <small class="muted">
+          {t("Limites du profil « Valeurs du projet ». Les autres profils se règlent dans les réglages globaux.")}
+        </small>
         <div class="row">
           <label>
             <span>{t("Temps limite (s)")}</span>
@@ -125,6 +128,37 @@
           </small>
         </label>
         <CommandSettings {draft} />
+        <div class="profiles">
+          <strong>{t("Profils de run")}</strong>
+          <small class="muted">
+            {t("Choisis au lancement (menu à côté de Run) : P time_limit et P memory_limit du .export. Temps vide : illimité.")}
+          </small>
+          <div class="profile head muted">
+            <span>{t("Nom")}</span><span>{t("Temps limite (s)")}</span><span>{t("Mémoire limite (Mo)")}</span><span></span>
+          </div>
+          {#each draft.run_profiles as p, i (i)}
+            <div class="profile">
+              <input value={app.profileLabel(p.name)} oninput={(e) => (p.name = e.currentTarget.value)} />
+              <input
+                type="number"
+                min="1"
+                placeholder={t("illimité")}
+                value={p.time_limit ?? ""}
+                oninput={(e) => (p.time_limit = e.currentTarget.value === "" ? null : Number(e.currentTarget.value))}
+              />
+              <input type="number" min="128" step="128" bind:value={p.memory_limit} />
+              <button class="ghost icon" title={t("Retirer")} onclick={() => draft.run_profiles.splice(i, 1)}>
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
+          {/each}
+          <button
+            class="ghost add"
+            onclick={() => draft.run_profiles.push({ name: t("Nouveau profil"), time_limit: 600, memory_limit: 4096 })}
+          >
+            <Icon name="plus" size={13} />{t("Ajouter un profil")}
+          </button>
+        </div>
         <div class="catalog">
           <div>
             <strong>{t("Catalogue des commandes")}</strong>
@@ -225,6 +259,23 @@
     padding: 10px 12px;
     border: 1px solid var(--border);
     border-radius: 8px;
+  }
+  .profiles {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .profile {
+    display: grid;
+    grid-template-columns: 1fr 130px 130px 28px;
+    gap: 6px;
+    align-items: center;
+  }
+  .profile.head {
+    font-size: 11px;
   }
   .files-title {
     font-weight: 500;

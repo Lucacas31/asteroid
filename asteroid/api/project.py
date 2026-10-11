@@ -13,6 +13,7 @@ from ..core import forms, i18n, pyvalue, refactor
 from ..core.comm_import import split_comm
 from ..core.i18n import t
 from ..core.model import DEFAULT_NAME, Block, Project
+from ..core.runner import project_for_run
 from ..core.settings import Settings, save_settings
 from ..state import state
 
@@ -127,7 +128,8 @@ def _mesh_groups() -> dict[str, set[str]] | None:
 
 @router.post("/comm")
 def preview(project: Project) -> dict:
-    return commgen.generate(project, _mesh_groups()).to_dict()
+    # .export avec les limites du profil choisi, comme au lancement.
+    return commgen.generate(project_for_run(project, state.settings), _mesh_groups()).to_dict()
 
 
 @router.post("/comm/import")

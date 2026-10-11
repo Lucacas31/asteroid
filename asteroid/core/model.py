@@ -61,8 +61,9 @@ class Project(Persisted):
     mesh: str | None = None  # chemin relatif au dossier du projet
     units: UnitSystem = "mm-N-MPa"
     runs_dir: str = "runs"
-    time_limit: int = 300
+    time_limit: int = 300  # valeurs du projet (profil libre)
     memory_limit: int = 2048
+    run_profile: str | None = None  # profil des réglages globaux choisi au dernier lancement
     files: list[ExtraFile] = Field(default_factory=list)
     blocks: list[Block] = Field(default_factory=list)
 

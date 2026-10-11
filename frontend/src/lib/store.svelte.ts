@@ -738,14 +738,86 @@ class AppStore {
     }
     try {
       this.history = await api.runs();
+      // Run resté en cours pendant que l'app était fermée : repris par le serveur, suivi ici.
+      const running = this.history.find((r) => r.status === "running");
+      if (running && !this.activeRunId) {
+        this.activeRunId = running.id;
+        this.#follow(await api.runInfo(running.id));
+      }
     } catch (e) {
       this.error(e);
     }
   }
 
-  /** Lance le calcul ; s'il reste des erreurs, les montre d'abord (`force` : lancer quand même). */
-  async startRun(force = false) {
+  /** Libellé d'un profil de run (les profils par défaut sont traduits, les autres affichés tels quels). */
+  profileLabel(name: string | null | undefined): string {
+    return name ? t(name) : t("Valeurs du projet");
+  }
+
+  /** Limites affichées : « 3600 s · 8192 Mo », ou « illimité ». */
+  limitsLabel(time: number | null, memory: number): string {
+    const tl = time === null || time >= UNLIMITED_TIME ? t("illimité") : `${time} s`;
+    return `${tl} · ${memory} Mo`;
+  }
+
+  async setRunNote(id: string, note: string) {
+    try {
+      await api.setRunNote(id, note);
+      const item = this.history.find((r) => r.id === id);
+      if (item) item.note = note;
+      if (this.run?.id === id) this.run.note = note;
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  /** Supprime des runs (dossiers entiers), après confirmation dans l'interface. */
+  async deleteRuns(ids: string[]) {
+    for (const id of ids) {
+      try {
+        await api.deleteRun(id);
+        if (this.run?.id === id) {
+          this.#source?.close();
+          this.run = null;
+          this.log = [];
+        }
+      } catch (e) {
+        this.error(e);
+      }
+    }
+    await this.refreshHistory();
+  }
+
+  /** Retire la copie du maillage des runs choisis ; résultats, .comm et message restent. */
+  async lightenRuns(ids: string[]) {
+    let freed = 0;
+    for (const id of ids) {
+      try {
+        freed += (await api.lightenRun(id)).freed;
+      } catch (e) {
+        this.error(e);
+      }
+    }
+    await this.refreshHistory();
+    this.info(t("{size} libéré(s)", { size: formatSize(freed) }));
+  }
+
+  async openRunDir(id: string) {
+    try {
+      await api.openRunDir(id);
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  /** Lance le calcul ; s'il reste des erreurs, les montre d'abord (`force` : lancer quand même).
+   *  `profile` : profil des réglages globaux (null : valeurs du projet), retenu pour les lancements suivants. */
+  async startRun(force = false, profile?: string | null) {
     if (this.running) return;
+    if (profile !== undefined && profile !== (this.project.run_profile ?? null)) {
+      this.project.run_profile = profile;
+      this.touch("step");
+    }
     if (!this.projectDir && !(await this.saveAs())) return;
     if (!(await this.save())) return;
     await this.refreshPreview();
@@ -754,8 +826,10 @@ class AppStore {
       return;
     }
     this.problemsOpen = null;
+    // Autorisation des notifications de fin de run, demandée au premier lancement.
+    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
     try {
-      const info = await api.startRun();
+      const info = await api.startRun(this.project.run_profile ?? null);
       this.activeRunId = info.id;
       this.bottomOpen = true;
       this.bottomTab = "log";
@@ -823,6 +897,10 @@ class AppStore {
     const text = `Run ${info.id} : ${label}${info.duration ? ` (${info.duration} s)` : ""}`;
     if (info.status === "fail") this.#notify(text, "error");
     else this.info(text);
+    // Notification du bureau si l'app n'est pas au premier plan.
+    if ((document.hidden || !document.hasFocus()) && "Notification" in window && Notification.permission === "granted") {
+      new Notification(`Asteroid — ${this.project.name}`, { body: text, icon: "/logo.png" });
+    }
   }
 
   async openParaview(id?: string) {
@@ -878,5 +956,18 @@ const STATUS_LABELS: Record<RunInfo["status"], string> = {
   stopped: N_("arrêté"),
   interrupted: N_("interrompu"),
 };
+
+/** Valeur écrite pour le profil « illimité » (100 jours, run_aster impose sinon 1 jour). */
+export const UNLIMITED_TIME = 8_640_000;
+
+export function formatSize(bytes: number): string {
+  const units = ["o", "Ko", "Mo", "Go"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) {
+    bytes /= 1024;
+    i++;
+  }
+  return `${bytes.toLocaleString(i18n.locale, { maximumFractionDigits: i ? 1 : 0 })} ${units[i]}`;
+}
 
 export const app = new AppStore();
