@@ -122,7 +122,10 @@ L'interface existe en français et en anglais. Pour une autre langue, ajouter `l
 - **Blocs** : formulaires pour LIRE_MAILLAGE, MODI_MAILLAGE, AFFE_MODELE, DEFI_MATERIAU, AFFE_MATERIAU, AFFE_CARA_ELEM, AFFE_CHAR_MECA, MECA_STATIQUE, MACRO_ELAS_MULT, CALC_CHAMP, IMPR_RESU ; bascule formulaire ↔ texte ; texte libre avec autocomplétion pour toutes les autres commandes.
 - **Validation** : en continu, à partir du catalogue de Code_Aster 17.4 livré. *Réglages → Mettre à jour le catalogue* l'exporte depuis votre version de Code_Aster (commande modifiable, Docker par défaut).
 - **Import** d'un `.comm` existant : un bloc par commande, texte d'origine et commentaires conservés.
-- **Runs** : log en direct, diagnostic, messages `<F>`, `<E>`, `<A>` rattachés à leur bloc, historique, Stop, ouverture dans ParaView.
+- **Édition** : erreurs repérées signalées avant le run (correction proposée quand seule la casse d'un nom de groupe diffère), annuler/rétablir (Ctrl+Z, Ctrl+Maj+Z), renommage d'un concept propagé aux blocs qui l'utilisent.
+- **Runs** : log en direct, diagnostic, messages `<F>`, `<E>`, `<A>` rattachés à leur bloc, Stop, ouverture dans ParaView. Le calcul tourne dans un script `run.sh` détaché de l'app : fermer la fenêtre ne l'arrête pas, et il est repris à la réouverture. Notification du bureau en fin de run.
+- **Profils de run** (*Réglages globaux*) : temps et mémoire limites (`P time_limit`, `P memory_limit` du `.export`), choisis au lancement dans le menu à côté de Run ; « Valeurs du projet » utilise ceux du projet.
+- **Onglet Runs** : tableau des runs avec une note libre par run, fichiers du run (consultables dans l'app), comparaison de deux runs (différences des `.comm`), nettoyage manuel : « Alléger » retire la copie du maillage en gardant les résultats, « Supprimer » efface le run. Rien n'est jamais supprimé automatiquement.
 
 ## Depuis les sources
 
