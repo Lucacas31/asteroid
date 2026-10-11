@@ -67,7 +67,8 @@
   .layout {
     height: 100%;
     display: grid;
-    grid-template-columns: 260px minmax(520px, 1fr) minmax(360px, 30%);
+    /* Minimums réduits : dans une fenêtre étroite, rien ne sort à droite (bouton Run compris). */
+    grid-template-columns: minmax(200px, 260px) minmax(300px, 1fr) minmax(320px, 30%);
     grid-template-rows: auto minmax(0, 1fr) auto auto;
     grid-template-areas:
       "top top top"

@@ -172,6 +172,9 @@
     gap: 8px;
     min-width: 0;
   }
+  .right {
+    flex-shrink: 0; /* Run et ParaView restent visibles ; c'est la partie gauche qui se resserre */
+  }
   .brand {
     padding: 3px 6px;
   }
@@ -187,6 +190,8 @@
     border-color: transparent;
     background: transparent;
     width: 220px;
+    min-width: 80px;
+    flex-shrink: 1;
   }
   input.name:hover {
     border-color: var(--border);
@@ -216,10 +221,12 @@
     padding-left: 5px;
     padding-right: 5px;
   }
-  .profiles {
+  /* .menu.profiles : plus spécifique que .menu (left: 0), le menu s'ouvre vers la gauche du bouton. */
+  .menu.profiles {
     left: auto;
     right: 0;
     min-width: 300px;
+    max-width: calc(100vw - 16px);
   }
   .choice {
     gap: 8px !important;
