@@ -3,7 +3,8 @@
   import Icon from "./Icon.svelte";
   import RunsPanel from "./RunsPanel.svelte";
   import { app, statusLabel, type BottomTab } from "./store.svelte";
-  import { N_, t } from "./i18n.svelte";
+  import { formatValue } from "./format";
+  import { i18n, N_, t } from "./i18n.svelte";
 
   const TABS: { id: BottomTab; label: string }[] = [
     { id: "comm", label: N_("Aperçu .comm") },
@@ -130,6 +131,15 @@
               <span class="badge {app.run.status}">{statusLabel(app.run.status)}</span>
               {#if app.run.diagnostic}<span class="muted mono">{app.run.diagnostic}</span>{/if}
               {#if app.run.duration != null}<span class="muted">{app.run.duration} s</span>{/if}
+              {#if app.run.headline}
+                {@const h = app.run.headline}
+                {@const [len, stress] = app.run.units === "m-N-Pa" ? ["m", "Pa"] : ["mm", "MPa"]}
+                <button class="ghost headline" onclick={() => (app.bottomTab = "history")} title={t("Résumé des résultats (onglet Runs)")}>
+                  {t("Dépl. max")} <strong>{formatValue(h.depl_max, i18n.locale)}</strong> {len}
+                  · {t("σVM max")} <strong>{formatValue(h.vmis_max, i18n.locale)}</strong> {stress}
+                  {#if h.rf_min != null}· {t("RF min")} <strong class:low={h.rf_min < 1}>{formatValue(h.rf_min, i18n.locale)}</strong>{/if}
+                </button>
+              {/if}
               <span class="spacer"></span>
               {#if app.run.status !== "running"}
                 <span class="counts">
@@ -260,6 +270,14 @@
     gap: 10px;
     padding: 5px 10px;
     border-bottom: 1px solid var(--border);
+  }
+  .headline {
+    font-size: 12px;
+    padding: 1px 8px;
+    gap: 4px;
+  }
+  .headline .low {
+    color: var(--err);
   }
   .counts {
     display: flex;

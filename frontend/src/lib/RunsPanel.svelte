@@ -1,10 +1,18 @@
 <script lang="ts">
   // Gestionnaire des runs du projet : tableau, détails d'un run, comparaison de deux runs.
-  import { api, type RunFile, type RunSummary } from "./api";
+  import { untrack } from "svelte";
+  import { api, type Headline, type RunFile, type RunSummary } from "./api";
   import CodeEditor from "./CodeEditor.svelte";
+  import { formatValue } from "./format";
   import Icon from "./Icon.svelte";
+  import CompareView from "./CompareView.svelte";
+  import ResultPanel from "./ResultPanel.svelte";
   import { app, formatSize, statusLabel } from "./store.svelte";
-  import { t } from "./i18n.svelte";
+  import { i18n, t } from "./i18n.svelte";
+
+  const UNIT = { "mm-N-MPa": ["mm", "MPa"], "m-N-Pa": ["m", "Pa"] } as const;
+  const fmt = (x: number | null | undefined) => formatValue(x, i18n.locale);
+  const units = (r: RunSummary) => UNIT[r.units ?? "mm-N-MPa"];
 
   // Fichiers texte du run affichables dans l'app.
   const TEXT_FILES = /^(run\.(comm|export|log|sh|json)|message|paraview_open\.py)$/;
@@ -13,7 +21,44 @@
   let checked = $state<string[]>([]);
   let files = $state<RunFile[]>([]);
   let viewing = $state<{ name: string; text: string } | null>(null);
-  let comparing = $state<{ a: RunSummary; b: RunSummary; diff: string[] } | null>(null);
+  let comparing = $state<string[] | null>(null); // runs comparés, du plus ancien au plus récent
+
+  // Largeur du détail, réglable en tirant la séparation (retenue par ce navigateur).
+  const WIDTH_KEY = "asteroid.runsDetailWidth";
+  let runsEl = $state<HTMLDivElement>();
+  let detailWidth = $state<number | null>(readWidth());
+
+  function readWidth(): number | null {
+    try {
+      const v = Number(localStorage.getItem(WIDTH_KEY));
+      return v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function startResize(e: PointerEvent) {
+    if (!runsEl) return;
+    e.preventDefault();
+    const box = runsEl.getBoundingClientRect();
+    const move = (ev: PointerEvent) => {
+      detailWidth = Math.round(Math.min(Math.max(box.right - ev.clientX, 320), box.width - 160));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        if (detailWidth) localStorage.setItem(WIDTH_KEY, String(detailWidth));
+      } catch {
+        /* stockage indisponible : largeur oubliée au prochain lancement */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  /** Runs cochés, du plus ancien au plus récent (le plus ancien sert de référence). */
+  let checkedOrdered = $derived(app.history.filter((r) => checked.includes(r.id)).map((r) => r.id).reverse());
   let note = $state("");
 
   let current = $derived(app.history.find((r) => r.id === selected) ?? null);
@@ -27,12 +72,19 @@
     if (kept.length !== checked.length) checked = kept;
   });
 
+  // Détail rechargé au changement de run seulement : un rafraîchissement du tableau ne doit pas
+  // effacer la note en cours de saisie ni le fichier affiché.
+  // Identifiant seul (valeur simple) : l'effet ne se relance pas quand l'objet du run est recréé.
+  let currentId = $derived(current?.id ?? null);
+
   $effect(() => {
-    const run = current;
-    viewing = null;
-    note = run?.note ?? "";
-    files = [];
-    if (run) api.runFiles(run.id).then((f) => selected === run.id && (files = f)).catch(() => {});
+    const id = currentId;
+    untrack(() => {
+      viewing = null;
+      note = current?.note ?? "";
+      files = [];
+      if (id) api.runFiles(id).then((f) => selected === id && (files = f)).catch(() => {});
+    });
   });
 
   function select(id: string) {
@@ -49,14 +101,8 @@
     }
   }
 
-  async function compare() {
-    // Le plus ancien à gauche : le diff se lit « avant → après ».
-    const [a, b] = app.history.filter((r) => checked.includes(r.id)).reverse();
-    try {
-      comparing = { a, b, diff: (await api.compareRuns(a.id, b.id)).diff };
-    } catch (e) {
-      app.error(e);
-    }
+  function compare() {
+    comparing = checkedOrdered;
   }
 
   async function remove(ids: string[]) {
@@ -70,9 +116,10 @@
     comparing = null;
   }
 
-  async function lighten(ids: string[]) {
-    await app.lightenRuns(ids);
-    if (current) files = await api.runFiles(current.id);
+  /** Chiffres d'un run antérieur au résumé, calculés à son ouverture : reportés dans sa ligne. */
+  function setHeadline(id: string, headline: Headline | null | undefined) {
+    const row = app.history.find((r) => r.id === id);
+    if (row && headline && !row.headline) row.headline = headline;
   }
 
   function saveNote() {
@@ -83,32 +130,22 @@
     return iso.replace("T", " ");
   }
 
-  function lineClass(line: string): string {
-    if (line.startsWith("@@")) return "hunk";
-    if (line.startsWith("+")) return "add";
-    if (line.startsWith("-")) return "del";
-    return "";
-  }
 </script>
 
 {#if app.history.length}
-  <div class="runs">
+  <div class="runs" bind:this={runsEl}>
     <div class="list">
       <!-- Barre toujours affichée : cocher un run ne décale pas les lignes sous le curseur. -->
       <div class="bulk" class:on={checked.length > 0}>
         <span class="muted">
-          {checked.length ? t("{count} sélectionné(s)", { count: checked.length }) : t("Cocher deux runs pour les comparer")}
+          {checked.length ? t("{count} sélectionné(s)", { count: checked.length }) : t("Cocher des runs pour les comparer")}
         </span>
-        <button class="small" disabled={checked.length !== 2} onclick={compare} title={t("Comparer deux runs")}>
+        <button class="small" disabled={checked.length < 2} onclick={compare} title={t("Comparer les runs cochés")}>
           {t("Comparer")}
         </button>
-        <button
-          class="small"
-          disabled={!checked.length}
-          onclick={() => lighten(checked)}
-          title={t("Retirer la copie du maillage (résultats conservés)")}
-        >
-          {t("Alléger")}
+        <button class="small" disabled={checked.length < 2} onclick={() => app.openCompare(checkedOrdered)}
+                title={t("Comparer dans une grande fenêtre")}>
+          <Icon name="eye" size={13} />{t("Fenêtre")}
         </button>
         <button class="small danger" disabled={!checked.length} onclick={() => remove(checked)}>
           <Icon name="trash" size={13} />{t("Supprimer")}
@@ -125,6 +162,9 @@
             <th>{t("Profil")}</th>
             <th>{t("Statut")}</th>
             <th>{t("Durée")}</th>
+            <th class="num">{t("Dépl. max")}</th>
+            <th class="num">{t("σVM max")}</th>
+            <th class="num" title={t("Plus petite marge : résistance / Von Mises max")}>{t("RF min")}</th>
             <th>{t("Taille")}</th>
           </tr>
         </thead>
@@ -139,6 +179,9 @@
               <td>{app.profileLabel(r.profile)}</td>
               <td><span class="badge {r.status}">{statusLabel(r.status)}</span></td>
               <td>{r.duration != null ? `${r.duration} s` : "—"}</td>
+              <td class="num">{fmt(r.headline?.depl_max)}{#if r.headline?.depl_max != null}<span class="muted unit">{units(r)[0]}</span>{/if}</td>
+              <td class="num">{fmt(r.headline?.vmis_max)}{#if r.headline?.vmis_max != null}<span class="muted unit">{units(r)[1]}</span>{/if}</td>
+              <td class="num" class:low={r.headline?.rf_min != null && r.headline.rf_min < 1}>{fmt(r.headline?.rf_min)}</td>
               <td class="muted">{formatSize(r.size)}</td>
             </tr>
           {/each}
@@ -146,33 +189,14 @@
       </table>
     </div>
 
-    <div class="detail">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="splitter" onpointerdown={startResize} title={t("Tirer pour élargir le détail")}></div>
+    <div class="detail" class:sized={detailWidth !== null} style:width={detailWidth ? `${detailWidth}px` : undefined}>
       {#if comparing}
-        <div class="head">
-          <strong class="mono">{comparing.a.id} → {comparing.b.id}</strong>
-          <span class="spacer"></span>
-          <button class="ghost icon" onclick={() => (comparing = null)} title={t("Fermer")}><Icon name="close" size={14} /></button>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div ondblclick={() => comparing && app.openCompare(comparing)} title={t("Double-clic : comparer dans une grande fenêtre")}>
+          {#key comparing.join(",")}<CompareView ids={comparing} onclose={() => (comparing = null)} />{/key}
         </div>
-        <table class="pair">
-          <tbody>
-            <tr><th>{t("Note")}</th><td>{comparing.a.note}</td><td>{comparing.b.note}</td></tr>
-            <tr><th>{t("Profil")}</th><td>{app.profileLabel(comparing.a.profile)}</td><td>{app.profileLabel(comparing.b.profile)}</td></tr>
-            <tr>
-              <th>{t("Statut")}</th>
-              <td><span class="badge {comparing.a.status}">{statusLabel(comparing.a.status)}</span></td>
-              <td><span class="badge {comparing.b.status}">{statusLabel(comparing.b.status)}</span></td>
-            </tr>
-            <tr><th>{t("Durée")}</th><td>{comparing.a.duration ?? "—"} s</td><td>{comparing.b.duration ?? "—"} s</td></tr>
-          </tbody>
-        </table>
-        <div class="section">{t("Différences du .comm")}</div>
-        {#if comparing.diff.length}
-          <div class="diff mono">
-            {#each comparing.diff as line, i (i)}<div class={lineClass(line)}>{line || " "}</div>{/each}
-          </div>
-        {:else}
-          <p class="muted pad">{t("Les deux .comm sont identiques.")}</p>
-        {/if}
       {:else if current}
         <div class="head">
           <strong class="mono">{current.id}</strong>
@@ -183,11 +207,6 @@
           <button class="small" onclick={() => app.showRun(current!.id)}><Icon name="file" size={13} />{t("Log")}</button>
           <button class="small" onclick={() => app.openParaview(current!.id)}><Icon name="eye" size={13} />ParaView</button>
           <button class="small" onclick={() => app.openRunDir(current!.id)}><Icon name="folder" size={13} />{t("Ouvrir le dossier")}</button>
-          {#if current.has_mesh && current.status !== "running"}
-            <button class="small" onclick={() => lighten([current!.id])} title={t("Retirer la copie du maillage (résultats conservés)")}>
-              {t("Alléger")}
-            </button>
-          {/if}
           {#if current.status !== "running"}
             <button class="small danger" onclick={() => remove([current!.id])}><Icon name="trash" size={13} />{t("Supprimer")}</button>
           {/if}
@@ -199,6 +218,11 @@
           bind:value={note}
           onblur={saveNote}
         ></textarea>
+        {#if current.status === "ok" || current.status === "alarm"}
+          <div class="section">{t("Résumé des résultats")}</div>
+          <!-- currentId (valeur simple) : recréer l'objet du run ne relance pas la lecture du résumé. -->
+          {#key currentId}<ResultPanel runId={currentId!} onheadline={setHeadline} />{/key}
+        {/if}
         {#if viewing}
           <div class="section">
             <button class="ghost small" onclick={() => (viewing = null)}><Icon name="up" size={12} />{t("Fichiers")}</button>
@@ -331,9 +355,22 @@
   .detail > * {
     flex: none;
   }
-  .detail > .viewer,
-  .detail > .diff {
+  .detail > .viewer {
     flex: 1;
+  }
+  .detail.sized {
+    flex: none;
+    max-width: none;
+  }
+  .splitter {
+    width: 5px;
+    margin: 0 -2px;
+    z-index: 1;
+    cursor: col-resize;
+    flex: none;
+  }
+  .splitter:hover {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .note-input {
     margin: 0 10px 6px;
@@ -372,35 +409,21 @@
     flex: 1;
     min-height: 160px;
   }
-  .pair th {
-    position: static;
-    width: 80px;
-  }
-  .pair td {
-    white-space: normal;
-  }
-  .diff {
-    white-space: pre;
-    padding: 6px 10px;
-    font-size: 11.5px;
-    line-height: 1.45;
-    background: var(--code-bg);
-    overflow: auto;
-    flex: 1;
-  }
-  .diff .add {
-    color: var(--ok);
-    background: color-mix(in srgb, var(--ok) 10%, transparent);
-  }
-  .diff .del {
-    color: var(--err);
-    background: color-mix(in srgb, var(--err) 10%, transparent);
-  }
-  .diff .hunk {
-    color: var(--muted);
-  }
   .pad {
     padding: 0 10px;
+  }
+  .num {
+    text-align: right;
+  }
+  .unit {
+    margin-left: 3px;
+  }
+  td.low {
+    color: var(--err);
+    font-weight: 600;
+  }
+  .warn {
+    color: var(--warn);
   }
   .empty {
     padding: 16px;

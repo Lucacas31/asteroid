@@ -223,8 +223,10 @@ SCHEMAS: dict[str, dict] = {
             multienum("CONTRAINTE", ["SIGM_NOEU", "SIGM_ELNO", "SIEF_NOEU", "SIEF_ELNO"]),
             multienum("CRITERES", ["SIEQ_NOEU", "SIEQ_ELNO", "SIEQ_ELGA", "EPEQ_NOEU"]),
             multienum("DEFORMATION", ["EPSI_NOEU", "EPSI_ELNO", "EPSI_ELGA"]),
+            multienum("FORCE", ["REAC_NODA", "FORC_NODA"],
+                      help="REAC_NODA : réactions d'appui, pour le contrôle d'équilibre du résumé."),
         ],
-        "defaults": {"CONTRAINTE": ["SIGM_NOEU"], "CRITERES": ["SIEQ_NOEU"]},
+        "defaults": {"CONTRAINTE": ["SIGM_NOEU"], "CRITERES": ["SIEQ_NOEU"], "FORCE": ["REAC_NODA"]},
     },
     "IMPR_RESU": {
         "doc": "U4.91.01",

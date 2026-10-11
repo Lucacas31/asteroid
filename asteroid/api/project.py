@@ -192,6 +192,14 @@ def replace_group(body: GroupFixBody) -> dict:
     return {"block": block, "count": count}
 
 
+@router.get("/settings/capture_suggestion")
+def capture_suggestion(paraview: str = "") -> dict:
+    """Commande pvbatch proposée à partir de la commande ParaView (même dossier bin/)."""
+    from ..core.captures import suggest_command
+
+    return {"command": suggest_command(paraview)}
+
+
 @router.get("/settings")
 def get_settings() -> Settings:
     return state.settings

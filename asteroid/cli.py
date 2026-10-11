@@ -73,7 +73,7 @@ def open_window(url: str, quit_on_close: bool) -> None:
     started = time.time()
     proc = subprocess.Popen(
         [browser, f"--app={url}", f"--user-data-dir={profile}", f"--class={WM_CLASS}", "--no-first-run",
-         "--no-default-browser-check", "--window-size=1600,1000"],
+         "--no-default-browser-check", "--start-maximized"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

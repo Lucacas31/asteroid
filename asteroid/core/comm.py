@@ -8,7 +8,7 @@ from pathlib import PurePath
 
 from . import forms, pyvalue
 from .i18n import t
-from .model import Block, ExtraFile, Project
+from .model import DEFAULT_MEMORY, DEFAULT_TIME, Block, ExtraFile, Project
 
 COMM_NAME = "run.comm"
 EXPORT_NAME = "run.export"
@@ -56,7 +56,7 @@ TEMPLATES = {
     "MECA_STATIQUE": "resu = MECA_STATIQUE(MODELE=model, CHAM_MATER=chmat, EXCIT=_F(CHARGE=cl))",
     "CALC_CHAMP": (
         "resu = CALC_CHAMP(\n    reuse=resu,\n    RESULTAT=resu,\n"
-        '    CONTRAINTE=("SIGM_NOEU",),\n    CRITERES=("SIEQ_NOEU",),\n)'
+        '    CONTRAINTE=("SIGM_NOEU",),\n    CRITERES=("SIEQ_NOEU",),\n    FORCE=("REAC_NODA",),\n)'
     ),
     "IMPR_RESU": 'IMPR_RESU(FORMAT="MED", RESU=_F(RESULTAT=resu))',
 }
@@ -324,8 +324,8 @@ def mesh_scale(sources: list[str]) -> float:
 
 def generate_export(project: Project, files: list[FileEntry]) -> str:
     lines = [
-        f"P time_limit {project.time_limit}",
-        f"P memory_limit {project.memory_limit}",
+        f"P time_limit {project.time_limit or DEFAULT_TIME}",
+        f"P memory_limit {project.memory_limit or DEFAULT_MEMORY}",
         f"F comm {COMM_NAME} D 1",
     ]
     lines += [f"F {f.kind} {f.name} {f.mode} {f.unit}" for f in files]

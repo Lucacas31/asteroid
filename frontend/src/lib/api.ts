@@ -64,9 +64,10 @@ export interface Project {
   mesh: string | null;
   units: UnitSystem;
   runs_dir: string;
-  time_limit: number;
-  memory_limit: number;
-  /** Profil des réglages globaux choisi au dernier lancement ; null : valeurs du projet. */
+  /** Limites propres au projet ; null : non définies (le profil de run s'applique). */
+  time_limit: number | null;
+  memory_limit: number | null;
+  /** Profil des réglages globaux choisi au dernier lancement ; null : limites du projet, sinon le premier profil. */
   run_profile?: string | null;
   files: ExtraFile[];
   blocks: Block[];
@@ -83,6 +84,7 @@ export interface Settings {
   configured: boolean;
   recent_projects: string[];
   run_profiles: RunProfile[];
+  capture_command: string;
 }
 
 /** Limites d'un run (P time_limit, P memory_limit) ; time_limit null : illimité. */
@@ -186,12 +188,71 @@ export interface RunInfo {
   profile: string | null;
   time_limit: number;
   memory_limit: number;
+  headline?: Headline | null;
+  units?: UnitSystem;
 }
 
 export interface RunSummary
   extends Pick<RunInfo, "id" | "status" | "started" | "duration" | "note" | "profile" | "time_limit" | "memory_limit"> {
   size: number;
-  has_mesh: boolean;
+  headline?: Headline | null;
+  units?: UnitSystem;
+}
+
+/** Valeurs du tableau des runs (maxima sur tous les résultats, plus petite marge). */
+export interface Headline {
+  depl_max: number | null;
+  vmis_max: number | null;
+  rf_min: number | null;
+}
+
+/** Phrase française (clé de traduction) et ses variables. */
+export interface Note {
+  template: string;
+  vars: Record<string, unknown>;
+}
+
+export interface Extreme {
+  max: number;
+  node: number;
+  xyz: number[];
+}
+
+export interface Margin {
+  zone: string;
+  concept: string;
+  vmis_max: number | null;
+  material?: string;
+  model?: string;
+  strengths?: { name: string; value: number; rf: number | null }[];
+  note?: Note;
+}
+
+export interface ResultItem {
+  concept: string;
+  order: number;
+  notes: Note[];
+  depl?: Extreme;
+  vmis?: Extreme & { source: string };
+  margins?: Margin[];
+  reactions?: number[];
+  applied: number[] | null;
+  applied_note: Note | null;
+  equilibrium?: number;
+}
+
+export interface ResultSummary {
+  units: { length: string; stress: string; force: string };
+  results: ResultItem[];
+  headline?: Headline;
+  note?: Note;
+  file?: string;
+}
+
+export interface Captures {
+  state: "pending" | "ok" | "error" | "none" | "disabled";
+  views?: string[];
+  error?: string;
 }
 
 export interface RunFile {
@@ -315,7 +376,6 @@ export const api = {
   startRun: (profile: string | null) => request<RunInfo>("POST", "/api/runs", { profile }),
   setRunNote: (id: string, note: string) => request<{ note: string }>("PATCH", `/api/runs/${encodeURIComponent(id)}`, { note }),
   deleteRun: (id: string) => request<{ deleted: string }>("DELETE", `/api/runs/${encodeURIComponent(id)}`),
-  lightenRun: (id: string) => request<{ freed: number }>("POST", `/api/runs/${encodeURIComponent(id)}/lighten`),
   runFiles: (id: string) => request<RunFile[]>("GET", `/api/runs/${encodeURIComponent(id)}/files`),
   runFileText: async (id: string, name: string): Promise<string> => {
     const res = await fetch(`/api/runs/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`);
@@ -323,8 +383,19 @@ export const api = {
     return res.text();
   },
   openRunDir: (id: string) => request<{ path: string }>("POST", `/api/runs/${encodeURIComponent(id)}/open_dir`),
-  compareRuns: (a: string, b: string) =>
-    request<{ diff: string[] }>("GET", `/api/runs/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  runSummary: (id: string) =>
+    request<{ summary: ResultSummary; captures: Captures }>("GET", `/api/runs/${encodeURIComponent(id)}/summary`),
+  makeCaptures: (id: string) => request<Captures>("POST", `/api/runs/${encodeURIComponent(id)}/captures`),
+  /** Captures des runs avec mêmes vues, même échelle ; `key` : dossier de la comparaison (cmp-…). */
+  compareCaptures: (ids: string[]) =>
+    request<{ key: string; runs: Record<string, Captures> }>("POST", "/api/runs/compare/captures", { ids }),
+  captureUrl: (id: string, kind: string, view: string, stamp: number) =>
+    `/api/runs/${encodeURIComponent(id)}/captures/${kind}/${view}.png?t=${stamp}`,
+  captureSuggestion: (paraview: string) =>
+    request<{ command: string }>("GET", `/api/settings/capture_suggestion?paraview=${encodeURIComponent(paraview)}`),
+  /** Différences du .comm de chaque run par rapport au premier (la référence). */
+  compareRuns: (ids: string[]) =>
+    request<{ reference: string; diffs: Record<string, string[]> }>("GET", `/api/runs/compare?ids=${encodeURIComponent(ids.join(","))}`),
   runInfo: (id: string) => request<RunInfo>("GET", `/api/runs/${encodeURIComponent(id)}`),
   stopRun: (id: string) => request<{ stopped: boolean }>("POST", `/api/runs/${encodeURIComponent(id)}/stop`),
   paraview: (id: string) =>

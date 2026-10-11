@@ -87,7 +87,9 @@ asteroid/
 
 Project folder: `asteroid.json` (blocks and project settings), `materials.json` (frozen copies of the materials used), the mesh, and `runs/<timestamp>/` for each computation.
 
-Each run is a `run.sh` script detached from the app: closing the window does not stop the computation, and it is picked up again on the next launch. The *Runs* tab lists the runs with a free note, their files, a comparison of two runs (`.comm` differences) and manual cleanup: *Lighten* removes the mesh copy and keeps the results, *Delete* removes the run. Nothing is ever deleted automatically. Run profiles (*Global settings*) set `P time_limit` and `P memory_limit` of the `.export`; pick one at launch in the menu next to Run.
+Each run is a `run.sh` script detached from the app: closing the window does not stop the computation, and it is picked up again on the next launch. The *Runs* tab lists the runs with a free note, their files, a side-by-side comparison of several runs (one column per run, reordered by drag and drop; the first is the reference for % differences and `.comm` differences), in the panel or in a large window (*Window* button or double-click) and manual cleanup: *Delete* removes the run. Nothing is ever deleted automatically.
+
+Each finished run gets a results summary read from the `.rmed`: maximum displacement, maximum Von Mises, margins (strength / max σVM) for each strength of the library material, per `AFFE_MATERIAU` zone, and an equilibrium check where Asteroid recomputes the applied load from the `.comm` and the geometry and compares it with the sum of `REAC_NODA`. Optionally (*Global settings → ParaView and captures*), `pvbatch` from ParaView renders four views of the deformed shape coloured by Von Mises; compared runs share the same views, colour scale and amplification. Run profiles set `P time_limit` and `P memory_limit` of the `.export`: the arrow next to Run picks one and runs, and *Edit profiles…* is in the same menu. The first profile is the default; limits set in *Settings → Project* become the default choice (“Project”).
 
 ### Material library
 
@@ -107,6 +109,7 @@ cd frontend && npm install && npm run build && cd ..
 ```
 
 Settings and library then live in `~/.config/asteroid/`. Tests: `.venv/bin/pytest`. Archive and wheel: `scripts/build-portable.sh` (output in `dist/`).
+scripts/asteroid-test.sh [project]     # sources without building (Vite) on :5180, next to the usual instance
 
 ## License
 

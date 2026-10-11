@@ -65,8 +65,8 @@ function emptyProject(): Project {
     mesh: null,
     units: "mm-N-MPa",
     runs_dir: "runs",
-    time_limit: 300,
-    memory_limit: 2048,
+    time_limit: null,
+    memory_limit: null,
     files: [],
     blocks: [],
   };
@@ -104,6 +104,7 @@ class AppStore {
   notice = $state<{ text: string; kind: "info" | "error" } | null>(null);
   picker = $state<PickerRequest | null>(null);
   settingsOpen = $state(false);
+  profilesOpen = $state(false);
   importOpen = $state(false);
   materialsOpen = $state(false);
   library = $state<import("./api").Material[]>([]);
@@ -193,6 +194,26 @@ class AppStore {
     } catch (e) {
       this.error(e);
     }
+  }
+
+  /** Fenêtre de comparaison : traductions, réglages et runs du projet ouvert, sans maillage ni aperçu. */
+  async initCompare() {
+    try {
+      await i18n.load();
+      const snap = await api.state();
+      this.project = snap.project;
+      this.projectDir = snap.project_dir;
+      this.settings = snap.settings;
+      this.history = await api.runs();
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  /** Ouvre (ou réutilise) la fenêtre de comparaison des runs donnés, du plus ancien au plus récent. */
+  openCompare(ids: string[]) {
+    const url = `/?compare=${encodeURIComponent(ids.join(","))}`;
+    window.open(url, "asteroid-compare", "popup=yes,width=1500,height=950");
   }
 
   #apply(snap: Snapshot, keepHistory = false) {
@@ -749,9 +770,31 @@ class AppStore {
     }
   }
 
-  /** Libellé d'un profil de run (les profils par défaut sont traduits, les autres affichés tels quels). */
+  /** Libellé d'un profil de run (les profils par défaut sont traduits, les autres affichés tels quels) ;
+   *  null : limites propres au projet. */
   profileLabel(name: string | null | undefined): string {
-    return name ? t(name) : t("Valeurs du projet");
+    return name ? t(name) : t("Projet");
+  }
+
+  /** Limites « Projet » effectives : une valeur non définie vient du premier profil (comme le backend). */
+  get projectLimitsLabel(): string {
+    const first = this.settings?.run_profiles[0];
+    const time = this.project.time_limit ?? (first ? first.time_limit : 300);
+    return this.limitsLabel(time, this.project.memory_limit ?? first?.memory_limit ?? 2048);
+  }
+
+  /** Le projet définit ses propres limites (réglages du projet). */
+  get projectLimits(): boolean {
+    return this.project.time_limit != null || this.project.memory_limit != null;
+  }
+
+  /** Profil du prochain lancement (même règle que le backend) : celui choisi au dernier lancement,
+   *  sinon les limites du projet si elles sont définies (null), sinon le premier profil. */
+  get currentProfile(): string | null {
+    const profiles = this.settings?.run_profiles ?? [];
+    const chosen = profiles.find((p) => p.name === this.project.run_profile)?.name;
+    if (chosen) return chosen;
+    return this.projectLimits ? null : (profiles[0]?.name ?? null);
   }
 
   /** Limites affichées : « 3600 s · 8192 Mo », ou « illimité ». */
@@ -788,20 +831,6 @@ class AppStore {
     await this.refreshHistory();
   }
 
-  /** Retire la copie du maillage des runs choisis ; résultats, .comm et message restent. */
-  async lightenRuns(ids: string[]) {
-    let freed = 0;
-    for (const id of ids) {
-      try {
-        freed += (await api.lightenRun(id)).freed;
-      } catch (e) {
-        this.error(e);
-      }
-    }
-    await this.refreshHistory();
-    this.info(t("{size} libéré(s)", { size: formatSize(freed) }));
-  }
-
   async openRunDir(id: string) {
     try {
       await api.openRunDir(id);
@@ -814,6 +843,8 @@ class AppStore {
    *  `profile` : profil des réglages globaux (null : valeurs du projet), retenu pour les lancements suivants. */
   async startRun(force = false, profile?: string | null) {
     if (this.running) return;
+    // Autorisation des notifications de fin de run : demandée tout de suite, pendant le clic.
+    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
     if (profile !== undefined && profile !== (this.project.run_profile ?? null)) {
       this.project.run_profile = profile;
       this.touch("step");
@@ -826,8 +857,6 @@ class AppStore {
       return;
     }
     this.problemsOpen = null;
-    // Autorisation des notifications de fin de run, demandée au premier lancement.
-    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
     try {
       const info = await api.startRun(this.project.run_profile ?? null);
       this.activeRunId = info.id;

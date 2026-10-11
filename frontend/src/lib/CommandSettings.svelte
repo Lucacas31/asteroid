@@ -1,10 +1,16 @@
 <script lang="ts">
   // Commandes externes (Code_Aster, arrêt, ParaView) : partagées par l'écran de premier
   // lancement et les réglages globaux. L'app ne devine rien : elle exécute ces commandes.
-  import type { Settings } from "./api";
+  import { api, type Settings } from "./api";
   import { N_, t } from "./i18n.svelte";
 
-  let { draft }: { draft: Settings } = $props();
+  // part : « aster » (lancement, arrêt) ou « post » (ParaView, captures) pour les catégories des
+  // réglages globaux ; « all » pour l'écran de premier lancement.
+  let { draft, part = "all" }: { draft: Settings; part?: "all" | "aster" | "post" } = $props();
+
+  async function suggest() {
+    draft.capture_command = (await api.captureSuggestion(draft.paraview_command)).command;
+  }
 
   const RUN_VARS: [string, string][] = [
     ["{run_dir}", N_("chemin absolu du dossier du run (dossier courant de la commande)")],
@@ -16,6 +22,7 @@
   ];
 </script>
 
+{#if part !== "post"}
 <label>
   <span>{t("Commande de lancement")}</span>
   <textarea rows="4" bind:value={draft.run_command} spellcheck="false"></textarea>
@@ -40,6 +47,8 @@
   <input bind:value={draft.stop_command} spellcheck="false" />
   <small class="muted">{t("Bouton Stop, mêmes variables. Vide : le processus de la commande de lancement est tué.")}</small>
 </label>
+{/if}
+{#if part !== "aster"}
 <label>
   <span>{t("Commande ParaView")}</span>
   <input bind:value={draft.paraview_command} spellcheck="false" />
@@ -48,7 +57,29 @@
   </small>
 </label>
 
+<label>
+  <span>{t("Commande des captures (pvbatch)")}</span>
+  <div class="with-button">
+    <input bind:value={draft.capture_command} spellcheck="false" placeholder={t("vide : pas de captures")} />
+    <button type="button" onclick={suggest} title={t("pvbatch est livré avec ParaView, dans le même dossier bin/")}>
+      {t("Déduire de la commande ParaView")}
+    </button>
+  </div>
+  <small class="muted">
+    {t("Images du résultat (déformée, Von Mises) à la fin de chaque run, dans l'onglet Runs. Variable :")} <code>{"{script}"}</code>
+  </small>
+</label>
+
+{/if}
+
 <style>
+  .with-button {
+    display: flex;
+    gap: 6px;
+  }
+  .with-button input {
+    flex: 1;
+  }
   label {
     display: flex;
     flex-direction: column;
