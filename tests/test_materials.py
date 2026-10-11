@@ -39,7 +39,7 @@ def client():
     from asteroid.server import app
 
     state_module.state.__init__()
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def test_library_api_and_project_copy(client, tmp_path, cube_med):
