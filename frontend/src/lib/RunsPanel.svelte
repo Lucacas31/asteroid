@@ -1,5 +1,6 @@
 <script lang="ts">
   // Gestionnaire des runs du projet : tableau, détails d'un run, comparaison de deux runs.
+  import { untrack } from "svelte";
   import { api, type Captures, type RunFile, type RunSummary } from "./api";
   import CodeEditor from "./CodeEditor.svelte";
   import { formatValue } from "./format";
@@ -36,12 +37,19 @@
     if (kept.length !== checked.length) checked = kept;
   });
 
+  // Détail rechargé au changement de run seulement : un rafraîchissement du tableau ne doit pas
+  // effacer la note en cours de saisie ni le fichier affiché.
+  // Identifiant seul (valeur simple) : l'effet ne se relance pas quand l'objet du run est recréé.
+  let currentId = $derived(current?.id ?? null);
+
   $effect(() => {
-    const run = current;
-    viewing = null;
-    note = run?.note ?? "";
-    files = [];
-    if (run) api.runFiles(run.id).then((f) => selected === run.id && (files = f)).catch(() => {});
+    const id = currentId;
+    untrack(() => {
+      viewing = null;
+      note = current?.note ?? "";
+      files = [];
+      if (id) api.runFiles(id).then((f) => selected === id && (files = f)).catch(() => {});
+    });
   });
 
   function select(id: string) {
@@ -261,7 +269,7 @@
         ></textarea>
         {#if current.status === "ok" || current.status === "alarm"}
           <div class="section">{t("Résumé des résultats")}</div>
-          {#key current.id}<ResultPanel runId={current.id} />{/key}
+          {#key current.id}<ResultPanel runId={current.id} onload={() => !current?.headline && app.refreshHistory()} />{/key}
         {/if}
         {#if viewing}
           <div class="section">

@@ -368,13 +368,23 @@ class RunManager:
                 info = self.info(d.name, runs_root)
                 if info:
                     keys = ("id", "status", "started", "duration", "note", "profile", "time_limit", "memory_limit", "headline", "units")
-                    items.append({k: info.get(k) for k in keys} | {"size": dir_size(d), "has_mesh": (d / commgen.MESH_NAME).exists()})
+                    item = {k: info.get(k) for k in keys} | {"size": dir_size(d), "has_mesh": (d / commgen.MESH_NAME).exists()}
+                    if item["headline"] is None:
+                        item["headline"] = _cached_headline(d)  # run antérieur au résumé, ouvert depuis
+                    items.append(item)
         return items
 
 
 def public_info(info: dict) -> dict:
     """run.json sans les données internes (blocs, pid, matériaux, commande de captures)."""
     return {k: v for k, v in info.items() if k not in ("blocks", "pid", "materials", "capture_command")}
+
+
+def _cached_headline(run_dir: Path) -> dict | None:
+    try:
+        return json.loads((run_dir / results.SUMMARY_FILE).read_text()).get("headline")
+    except (OSError, ValueError):
+        return None
 
 
 def _read_exit(run_dir: Path) -> int | None:

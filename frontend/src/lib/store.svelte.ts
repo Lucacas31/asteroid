@@ -814,6 +814,8 @@ class AppStore {
    *  `profile` : profil des réglages globaux (null : valeurs du projet), retenu pour les lancements suivants. */
   async startRun(force = false, profile?: string | null) {
     if (this.running) return;
+    // Autorisation des notifications de fin de run : demandée tout de suite, pendant le clic.
+    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
     if (profile !== undefined && profile !== (this.project.run_profile ?? null)) {
       this.project.run_profile = profile;
       this.touch("step");
@@ -826,8 +828,6 @@ class AppStore {
       return;
     }
     this.problemsOpen = null;
-    // Autorisation des notifications de fin de run, demandée au premier lancement.
-    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
     try {
       const info = await api.startRun(this.project.run_profile ?? null);
       this.activeRunId = info.id;

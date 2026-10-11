@@ -5,7 +5,7 @@
   import { app } from "./store.svelte";
   import { i18n, t } from "./i18n.svelte";
 
-  let { runId }: { runId: string } = $props();
+  let { runId, onload }: { runId: string; onload?: () => void } = $props();
 
   let summary = $state<ResultSummary | null>(null);
   let shots = $state<Captures | null>(null);
@@ -23,6 +23,7 @@
       if (id !== runId) return;
       summary = res.summary;
       shots = res.captures;
+      onload?.();
       error = null;
       stamp = Date.now();
       // Captures lancées à la fin du run : on revient voir tant qu'elles sont en cours.
