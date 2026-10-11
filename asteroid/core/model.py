@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 PROJECT_FILE = "asteroid.json"
 FORMAT_VERSION = 1
@@ -19,10 +19,17 @@ def new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+class Persisted(BaseModel):
+    """Modèle enregistré sur disque. Les champs inconnus (écrits par une version plus
+    récente d'Asteroid) sont conservés et réécrits tels quels, jamais supprimés."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 DEFAULT_NAME = "nouveau projet"  # traduit à la création ; remplacé par le nom du dossier
 
 
-class Block(BaseModel):
+class Block(Persisted):
     """Une commande Code_Aster (`concept = COMMANDE(...)`).
 
     En mode `form`, la source de vérité est `params` (arbre de valeurs, voir
@@ -39,7 +46,7 @@ class Block(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)  # ex. {"material": "acier_s235"}
 
 
-class ExtraFile(BaseModel):
+class ExtraFile(Persisted):
     """Fichier rattaché à une unité logique (ex. LIRE_FONCTION(UNITE=40))."""
 
     unit: int
@@ -48,7 +55,7 @@ class ExtraFile(BaseModel):
     kind: str = "libr"  # type de fichier pour le .export
 
 
-class Project(BaseModel):
+class Project(Persisted):
     version: int = FORMAT_VERSION
     name: str = DEFAULT_NAME
     mesh: str | None = None  # chemin relatif au dossier du projet

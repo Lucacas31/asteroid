@@ -19,9 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field, model_validator
 
 from .i18n import t
+from .model import Persisted
 from .settings import config_dir, user_dir
 
 Model = Literal["ELAS", "ELAS_ISTR", "ELAS_ORTH"]
@@ -44,12 +45,12 @@ FACTORS: dict[str, dict[str, float]] = {
 }
 
 
-class Strength(BaseModel):
+class Strength(Persisted):
     name: str  # ex. « Traction XY »
     value: float  # Pa
 
 
-class Material(BaseModel):
+class Material(Persisted):
     """Matériau de la bibliothèque, en SI."""
 
     id: str = ""
@@ -61,13 +62,21 @@ class Material(BaseModel):
     rho: float | None = None  # kg/m³
     strengths: list[Strength] = Field(default_factory=list)  # Pa, pour un futur calcul de marges
 
+    @model_validator(mode="before")
+    @classmethod
+    def _without_note(cls, data):
+        # « units » des fichiers : note de lecture réécrite à l'enregistrement, pas un champ.
+        if isinstance(data, dict) and "units" in data:
+            data = {k: v for k, v in data.items() if k != "units"}
+        return data
+
     def cleaned(self) -> "Material":
         """Copie aux valeurs arrondies à 12 chiffres significatifs (bruit des conversions d'affichage)."""
         return self.model_copy(
             update={
                 "constants": {k: _clean(v) for k, v in self.constants.items()},
                 "rho": None if self.rho is None else _clean(self.rho),
-                "strengths": [Strength(name=s.name, value=_clean(s.value)) for s in self.strengths],
+                "strengths": [s.model_copy(update={"value": _clean(s.value)}) for s in self.strengths],
             }
         )
 
