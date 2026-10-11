@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+asteroid/static/
+tests/data/*.med
+tests/data/*.msh
+.pytest_cache/
+!tests/data/cube_h20_aster.med
+dist/

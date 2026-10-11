@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Lanceur du dossier portable d'Asteroid.
+#
+# Au premier lancement (et après une mise à jour), crée l'environnement Python .venv/ dans ce
+# dossier et y installe Asteroid depuis wheels/ (dépendances depuis PyPI) : avec uv s'il est
+# présent, sinon avec le Python du système (3.11 ou plus, module venv).
+# Les données de l'utilisateur vivent à côté : config/ (réglages), materiaux/ (bibliothèque),
+# langues/ (traductions ajoutées).
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+venv="$here/.venv"
+stamp="$venv/asteroid-wheel"
+
+fail() {
+  echo "asteroid : $1" >&2
+  # Lancé depuis le menu des applications : pas de terminal pour lire le message.
+  if [ ! -t 2 ] && command -v zenity >/dev/null; then zenity --error --title=Asteroid --text="$1" || true; fi
+  exit 1
+}
+
+system_python() {
+  for py in python3.14 python3.13 python3.12 python3.11 python3; do
+    if command -v "$py" >/dev/null && "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+      command -v "$py"
+      return
+    fi
+  done
+  return 1
+}
+
+# La version la plus récente si une mise à jour a été extraite par-dessus l'ancienne.
+wheel="$(ls "$here"/wheels/asteroid-*.whl 2>/dev/null | sort -V | tail -n 1)"
+[ -n "$wheel" ] || fail "aucun wheel dans $here/wheels"
+
+# Environnement cassé (Python du système mis à jour ou supprimé) : recréé.
+"$venv/bin/python" -c '' 2>/dev/null || rm -rf "$venv"
+
+if [ "$(cat "$stamp" 2>/dev/null)" != "$(basename "$wheel")" ]; then
+  echo "Asteroid : installation de $(basename "$wheel") et de ses dépendances dans $venv…"
+  if command -v uv >/dev/null; then
+    # uv fournit lui-même un Python récent si celui du système est trop ancien.
+    [ -d "$venv" ] || uv venv --quiet --python ">=3.11" "$venv" || fail "uv n'a pas pu créer $venv"
+    uv pip install --quiet --python "$venv/bin/python" "$wheel" || fail "échec de l'installation (connexion à PyPI ?)"
+  else
+    if [ ! -d "$venv" ]; then
+      py="$(system_python)" || fail "Python 3.11 ou plus introuvable (ou installer uv : https://docs.astral.sh/uv/)"
+      "$py" -m venv "$venv" || {
+        rm -rf "$venv"
+        fail "$py ne sait pas créer d'environnement (Debian/Ubuntu : sudo apt install python3-venv)"
+      }
+    fi
+    "$venv/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel" ||
+      fail "échec de l'installation (connexion à PyPI ?)"
+  fi
+  basename "$wheel" > "$stamp"
+fi
+
+export ASTEROID_HOME="$here"
+export ASTEROID_LAUNCHER="$here/asteroid"
+exec "$venv/bin/python" -I -m asteroid.cli "$@"

@@ -1,0 +1,23 @@
+Traductions de l'interface / Interface translations
+====================================================
+
+Un fichier xx.json par langue (xx : code de la langue), par exemple de.json :
+
+    {
+      "_langue": "Deutsch",
+      "Nouveau projet": "Neues Projekt",
+      "Fichier introuvable : {path}": "Datei nicht gefunden: {path}"
+    }
+
+- La clé est la phrase française de l'interface ; garder les {variables} telles quelles.
+- Une phrase absente reste en français.
+- Un fichier en.json ou fr.json placé ici complète ou remplace celui livré avec l'app.
+- Point de départ complet : le fichier anglais livré, dans le wheel (wheels/asteroid-*.whl, une
+  archive zip) : asteroid/data/langues/en.json
+- Choisir la langue : Réglages → Réglages globaux → Langue de l'interface.
+
+One xx.json file per language (xx: language code, e.g. de.json). Keys are the French sentences of the
+interface; keep the {variables} unchanged. Missing sentences stay in French. Start from the
+bundled English file, inside the wheel (wheels/asteroid-*.whl, a zip archive):
+asteroid/data/langues/en.json. Then pick the language in Settings → Global settings →
+Interface language.

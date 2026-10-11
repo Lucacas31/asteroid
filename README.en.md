@@ -1,0 +1,111 @@
+# Asteroid
+
+*[Version française](README.md)*
+
+Prepare, run and follow **Code_Aster** static mechanics computations, without Salome-Meca.
+
+```
+FreeCAD → STEP → Gmsh → .med mesh → Asteroid → Code_Aster → .rmed results → ParaView
+```
+
+Asteroid shows the mesh and its groups in 3D and builds the `.comm` command file block by block: forms for the common commands, free text for everything else. It validates the file continuously against the Code_Aster catalogue, runs the computation, attaches errors to the right block and opens the results in ParaView. It writes the real Code_Aster command and keyword names, with no invented syntax: the generated `.comm` stays readable and editable by hand. Code_Aster itself is in French, so command names, keywords and the messages of a run stay in French.
+
+Interface in English or French. Linux only.
+
+## Installation
+
+1. Download `asteroid-<version>-linux.tar.gz` from the [Releases](../../releases) page.
+2. Extract it anywhere and run `asteroid`:
+
+   ```bash
+   tar -xzf asteroid-*-linux.tar.gz
+   ./asteroid/asteroid
+   ```
+
+On first launch, the launcher creates a Python environment in `asteroid/.venv/` and installs Asteroid and its dependencies from PyPI (internet access needed, once). It uses [uv](https://docs.astral.sh/uv/) when installed, the system Python otherwise. An “Asteroid” entry is then added to the applications menu.
+
+**Update**: extract the new archive in the same place. Settings and the material library are kept; the Python environment is updated on the next launch.
+
+Alternatively, without a folder: install the release wheel with `pipx install asteroid-<version>-py3-none-any.whl` (or `uv tool install …`) and run `asteroid`. Settings and library then live in `~/.config/asteroid/`.
+
+### What you need alongside
+
+| Tool | Purpose | Required |
+|---|---|---|
+| Linux | | yes |
+| Python 3.11 or newer with the venv module (Debian/Ubuntu: `sudo apt install python3-venv`), or uv | running Asteroid | yes |
+| Code_Aster, e.g. the Docker image `simvia/code_aster:stable` (17.4) | computation | yes |
+| [ParaView](https://www.paraview.org/download/) with the MEDReader plugin (included in the official binaries) | results | no |
+| Chrome or Chromium | dedicated window; otherwise the default browser | no |
+| zenity | native file chooser; otherwise a built-in browser | no |
+| Gmsh | creating the `.med` mesh | upstream |
+
+## First launch
+
+Asteroid does not guess anything: it runs the commands you give it. The first screen asks for:
+
+- **the Code_Aster run command**, executed by bash from the run folder;
+- **the stop command** (Stop button);
+- **the ParaView command**, with the full path if `paraview` is not in the `PATH`;
+- the interface language.
+
+All of it can be changed later in *Settings → Global settings*.
+
+Variables available in the commands:
+
+| Variable | Value |
+|---|---|
+| `{run_dir}` | absolute path of the run folder (working directory of the command) |
+| `{export}` | the run's `.export` file, relative to the run folder |
+| `{comm}`, `{mesh}` | `.comm` file and mesh copied into the run |
+| `{run_id}` | run identifier (timestamp), useful to name a container |
+| `{image}` | Docker image from the settings |
+| `{script}`, `{rmed}` | (ParaView) script that loads MEDReader and opens the `.rmed` files; first `.rmed` of the run |
+
+Suggested value, for the official Docker image (`run_aster` is only in the image's `PATH` after `source /opt/activate.sh`):
+
+```
+docker run --rm --name asteroid_{run_id} --user $(id -u):$(id -g) -v {run_dir}:/work -w /work \
+  {image} bash -c "source /opt/activate.sh && run_aster {export}"
+```
+
+With a local Code_Aster installation, the command is just `run_aster {export}`. For Apptainer or another launcher, adapt the Docker command.
+
+## Files
+
+Application folder (archive):
+
+```
+asteroid/
+├── asteroid          launcher
+├── config/           settings (settings.json), created on first launch
+├── materiaux/        material library: one JSON file per material
+├── langues/          added translations (see langues/LISEZMOI.txt)
+├── wheels/           Asteroid (Python package)
+└── .venv/            Python environment, created on first launch
+```
+
+Project folder: `asteroid.json` (blocks and project settings), `materials.json` (frozen copies of the materials used), the mesh, and `runs/<timestamp>/` for each computation.
+
+### Material library
+
+One JSON file per material in `materiaux/`, in SI units, with the Code_Aster constant names (`E`, `NU`, `ALPHA`, `E_L`, `G_LN`…) and the models `ELAS`, `ELAS_ISTR` or `ELAS_ORTH`. Share a material by copying its file, or a whole library by dropping its folder into `materiaux/` (subfolders are read). *Material library → Import…* accepts a file with one material, a list of materials, or a project's `materials.json`. When a `DEFI_MATERIAU` block uses a material, Asteroid converts it to the project's units (the only conversion the app performs) and keeps a frozen copy in the project.
+
+### Languages
+
+To add a language, create `langues/<code>.json`. Each key is a French sentence of the interface and each value is its translation; missing sentences stay in French. Start from the bundled English file (path given in `langues/LISEZMOI.txt`). Code_Aster keywords and the `.comm` file are never translated.
+
+## From source
+
+```bash
+git clone <this repository> && cd asteroid
+uv venv && uv pip install -e ".[dev]"
+cd frontend && npm install && npm run build && cd ..
+.venv/bin/asteroid
+```
+
+Settings and library then live in `~/.config/asteroid/`. Tests: `.venv/bin/pytest`. Archive and wheel: `scripts/build-portable.sh` (output in `dist/`).
+
+## License
+
+[GPL-3.0-or-later](LICENSE). Code_Aster is free software by EDF under the GPL; the command catalogue bundled in `asteroid/data/` is extracted from it.
