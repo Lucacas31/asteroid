@@ -14,6 +14,27 @@ Interface in English or French. Linux only.
 
 ## Installation
 
+### AppImage (simplest)
+
+Download `Asteroid-x86_64.AppImage` from the [Releases](../../releases) page, make it executable and run it:
+
+```bash
+chmod +x Asteroid-x86_64.AppImage
+./Asteroid-x86_64.AppImage
+```
+
+A single file: Python and the dependencies are inside, no internet access is needed at launch. An “Asteroid” entry is added to the applications menu (it points to the file: after moving it, run it once again).
+
+Settings and the material library live in `~/.config/asteroid/` (see [Files](#files)).
+
+**Update**: replace the file with the new version. Settings, materials and projects are kept.
+
+**Portable mode** (USB stick…): create an `Asteroid-x86_64.AppImage.config` folder next to the file; settings and materials then go into that folder. Keep the same file name when updating.
+
+On a distribution without FUSE, run it with `--appimage-extract-and-run`.
+
+### Archive
+
 1. Download `asteroid-<version>-linux.tar.gz` from the [Releases](../../releases) page.
 2. Extract it anywhere and run `asteroid`:
 
@@ -33,7 +54,7 @@ Alternatively, without a folder: install the release wheel with `pipx install as
 | Tool | Purpose | Required |
 |---|---|---|
 | Linux | | yes |
-| Python 3.11 or newer with the venv module (Debian/Ubuntu: `sudo apt install python3-venv`), or uv | running Asteroid | yes |
+| Python 3.11 or newer with the venv module (Debian/Ubuntu: `sudo apt install python3-venv`), or uv | running Asteroid | except AppImage |
 | Code_Aster, e.g. the Docker image `simvia/code_aster:stable` (17.4) | computation | yes |
 | [ParaView](https://www.paraview.org/download/) with the MEDReader plugin (included in the official binaries) | results | no |
 | Chrome or Chromium | dedicated window; otherwise the default browser | no |
@@ -73,6 +94,20 @@ With a local Code_Aster installation, the command is just `run_aster {export}`. 
 
 ## Files
 
+User data (AppImage, wheel, source):
+
+```
+~/.config/asteroid/
+├── settings.json     global settings (commands, run profiles, recent projects, language)
+├── materiaux/        material library: one JSON file per material
+├── langues/          added translations
+└── catalog_*.json    catalog re-exported from your Code_Aster version
+```
+
+Alongside: the window profile in `~/.cache/asteroid/` (or `~/snap/chromium/common/asteroid-profile` with the snap Chromium) and the menu entry in `~/.local/share/applications/`. *Global settings* shows the settings folder.
+
+To move from the archive to the AppImage, copy `config/settings.json`, `materiaux/` and `langues/` from the archive folder into `~/.config/asteroid/`.
+
 Application folder (archive):
 
 ```
@@ -108,7 +143,7 @@ cd frontend && npm install && npm run build && cd ..
 .venv/bin/asteroid
 ```
 
-Settings and library then live in `~/.config/asteroid/`. Tests: `.venv/bin/pytest`. Archive and wheel: `scripts/build-portable.sh` (output in `dist/`).
+Settings and library then live in `~/.config/asteroid/`. Tests: `.venv/bin/pytest`. Archive and wheel: `scripts/build-portable.sh` (output in `dist/`). AppImage: `scripts/build-appimage.sh` (output in `dist/`, downloads Python and appimagetool).
 scripts/asteroid-test.sh [project]     # sources without building (Vite) on :5180, next to the usual instance
 
 ## License
