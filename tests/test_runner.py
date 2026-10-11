@@ -207,10 +207,21 @@ def test_profiles_in_export(tmp_path):
     export = (run.dir / "run.export").read_text()
     assert "P time_limit 8640000" in export and "P memory_limit 8192" in export
     assert run.info["profile"] == "Illimité"
-    # Profil inconnu : valeurs du projet.
-    run = asyncio.run(_start_and_wait(tmp_path, project.model_copy(update={"run_profile": "absent"}), settings))
+    # Pas de profil choisi : les limites du projet, si elles sont définies…
+    run = asyncio.run(_start_and_wait(tmp_path, project.model_copy(update={"run_profile": None}), settings))
     assert "P time_limit 120" in (run.dir / "run.export").read_text()
     assert run.info["profile"] is None
+    # … sinon le premier profil.
+    bare = Project(run_profile="absent")
+    run = asyncio.run(_start_and_wait(tmp_path, bare, settings))
+    assert "P time_limit 300\nP memory_limit 2048" in (run.dir / "run.export").read_text()
+    assert run.info["profile"] == "Court"
+
+
+def test_old_project_defaults_are_not_choices():
+    old = Project.model_validate({"time_limit": 300, "memory_limit": 2048})
+    assert old.time_limit is None and old.memory_limit is None
+    assert Project.model_validate({"time_limit": 600, "memory_limit": 2048}).time_limit == 600
 
 
 async def _start_and_wait(tmp_path, project, settings):

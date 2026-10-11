@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROJECT_FILE = "asteroid.json"
 FORMAT_VERSION = 1
@@ -26,6 +26,8 @@ class Persisted(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+DEFAULT_TIME = 300  # s, si ni profil ni limites du projet
+DEFAULT_MEMORY = 2048  # Mo
 DEFAULT_NAME = "nouveau projet"  # traduit à la création ; remplacé par le nom du dossier
 
 
@@ -61,9 +63,19 @@ class Project(Persisted):
     mesh: str | None = None  # chemin relatif au dossier du projet
     units: UnitSystem = "mm-N-MPa"
     runs_dir: str = "runs"
-    time_limit: int = 300  # valeurs du projet (profil libre)
-    memory_limit: int = 2048
+    # Limites propres au projet : vides par défaut (le profil de run choisi s'applique) ;
+    # définies, elles deviennent le choix par défaut au lancement (profil « Projet »).
+    time_limit: int | None = None
+    memory_limit: int | None = None
     run_profile: str | None = None  # profil des réglages globaux choisi au dernier lancement
+
+    @model_validator(mode="before")
+    @classmethod
+    def _old_defaults(cls, data):
+        # Projets de la 0.1 : 300 s et 2048 Mo y étaient écrits d'office, pas choisis.
+        if isinstance(data, dict) and data.get("time_limit") == 300 and data.get("memory_limit") == 2048:
+            data = {**data, "time_limit": None, "memory_limit": None}
+        return data
     files: list[ExtraFile] = Field(default_factory=list)
     blocks: list[Block] = Field(default_factory=list)
 

@@ -1,11 +1,12 @@
 <script lang="ts">
   // Résumé des résultats d'un run : chiffres clés, marges, équilibre, captures pvbatch.
+  import { untrack } from "svelte";
   import { api, type Captures, type Note, type ResultSummary } from "./api";
   import { formatValue, formatVector } from "./format";
   import { app } from "./store.svelte";
   import { i18n, t } from "./i18n.svelte";
 
-  let { runId, onload }: { runId: string; onload?: () => void } = $props();
+  let { runId, onheadline }: { runId: string; onheadline?: (id: string, h: ResultSummary["headline"]) => void } = $props();
 
   let summary = $state<ResultSummary | null>(null);
   let shots = $state<Captures | null>(null);
@@ -23,7 +24,7 @@
       if (id !== runId) return;
       summary = res.summary;
       shots = res.captures;
-      onload?.();
+      onheadline?.(id, res.summary.headline);
       error = null;
       stamp = Date.now();
       // Captures lancées à la fin du run : on revient voir tant qu'elles sont en cours.
@@ -34,8 +35,11 @@
   }
 
   $effect(() => {
-    summary = shots = null;
-    load(runId);
+    const id = runId;
+    untrack(() => {
+      summary = shots = null;
+      load(id);
+    });
   });
 
   async function capture() {
@@ -131,7 +135,7 @@
     </div>
   {/each}
 
-  {#if shots}
+  {#if shots && summary.results.length}
     <div class="shots">
       {#if shots.state === "ok" && shots.views}
         {#each shots.views as v (v)}

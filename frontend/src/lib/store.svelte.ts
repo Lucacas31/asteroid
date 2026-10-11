@@ -65,8 +65,8 @@ function emptyProject(): Project {
     mesh: null,
     units: "mm-N-MPa",
     runs_dir: "runs",
-    time_limit: 300,
-    memory_limit: 2048,
+    time_limit: null,
+    memory_limit: null,
     files: [],
     blocks: [],
   };
@@ -104,6 +104,7 @@ class AppStore {
   notice = $state<{ text: string; kind: "info" | "error" } | null>(null);
   picker = $state<PickerRequest | null>(null);
   settingsOpen = $state(false);
+  profilesOpen = $state(false);
   importOpen = $state(false);
   materialsOpen = $state(false);
   library = $state<import("./api").Material[]>([]);
@@ -749,9 +750,31 @@ class AppStore {
     }
   }
 
-  /** Libellé d'un profil de run (les profils par défaut sont traduits, les autres affichés tels quels). */
+  /** Libellé d'un profil de run (les profils par défaut sont traduits, les autres affichés tels quels) ;
+   *  null : limites propres au projet. */
   profileLabel(name: string | null | undefined): string {
-    return name ? t(name) : t("Valeurs du projet");
+    return name ? t(name) : t("Projet");
+  }
+
+  /** Limites « Projet » effectives : une valeur non définie vient du premier profil (comme le backend). */
+  get projectLimitsLabel(): string {
+    const first = this.settings?.run_profiles[0];
+    const time = this.project.time_limit ?? (first ? first.time_limit : 300);
+    return this.limitsLabel(time, this.project.memory_limit ?? first?.memory_limit ?? 2048);
+  }
+
+  /** Le projet définit ses propres limites (réglages du projet). */
+  get projectLimits(): boolean {
+    return this.project.time_limit != null || this.project.memory_limit != null;
+  }
+
+  /** Profil du prochain lancement (même règle que le backend) : celui choisi au dernier lancement,
+   *  sinon les limites du projet si elles sont définies (null), sinon le premier profil. */
+  get currentProfile(): string | null {
+    const profiles = this.settings?.run_profiles ?? [];
+    const chosen = profiles.find((p) => p.name === this.project.run_profile)?.name;
+    if (chosen) return chosen;
+    return this.projectLimits ? null : (profiles[0]?.name ?? null);
   }
 
   /** Limites affichées : « 3600 s · 8192 Mo », ou « illimité ». */
@@ -786,20 +809,6 @@ class AppStore {
       }
     }
     await this.refreshHistory();
-  }
-
-  /** Retire la copie du maillage des runs choisis ; résultats, .comm et message restent. */
-  async lightenRuns(ids: string[]) {
-    let freed = 0;
-    for (const id of ids) {
-      try {
-        freed += (await api.lightenRun(id)).freed;
-      } catch (e) {
-        this.error(e);
-      }
-    }
-    await this.refreshHistory();
-    this.info(t("{size} libéré(s)", { size: formatSize(freed) }));
   }
 
   async openRunDir(id: string) {

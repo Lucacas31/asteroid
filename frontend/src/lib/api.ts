@@ -64,9 +64,10 @@ export interface Project {
   mesh: string | null;
   units: UnitSystem;
   runs_dir: string;
-  time_limit: number;
-  memory_limit: number;
-  /** Profil des réglages globaux choisi au dernier lancement ; null : valeurs du projet. */
+  /** Limites propres au projet ; null : non définies (le profil de run s'applique). */
+  time_limit: number | null;
+  memory_limit: number | null;
+  /** Profil des réglages globaux choisi au dernier lancement ; null : limites du projet, sinon le premier profil. */
   run_profile?: string | null;
   files: ExtraFile[];
   blocks: Block[];
@@ -194,7 +195,6 @@ export interface RunInfo {
 export interface RunSummary
   extends Pick<RunInfo, "id" | "status" | "started" | "duration" | "note" | "profile" | "time_limit" | "memory_limit"> {
   size: number;
-  has_mesh: boolean;
   headline?: Headline | null;
   units?: UnitSystem;
 }
@@ -376,7 +376,6 @@ export const api = {
   startRun: (profile: string | null) => request<RunInfo>("POST", "/api/runs", { profile }),
   setRunNote: (id: string, note: string) => request<{ note: string }>("PATCH", `/api/runs/${encodeURIComponent(id)}`, { note }),
   deleteRun: (id: string) => request<{ deleted: string }>("DELETE", `/api/runs/${encodeURIComponent(id)}`),
-  lightenRun: (id: string) => request<{ freed: number }>("POST", `/api/runs/${encodeURIComponent(id)}/lighten`),
   runFiles: (id: string) => request<RunFile[]>("GET", `/api/runs/${encodeURIComponent(id)}/files`),
   runFileText: async (id: string, name: string): Promise<string> => {
     const res = await fetch(`/api/runs/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`);

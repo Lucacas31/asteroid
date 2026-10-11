@@ -2,6 +2,7 @@
   import type { Settings } from "./api";
   import CommandSettings from "./CommandSettings.svelte";
   import Icon from "./Icon.svelte";
+  import Section from "./Section.svelte";
   import { app } from "./store.svelte";
   import { i18n, t } from "./i18n.svelte";
 
@@ -29,6 +30,15 @@
     updating = false;
   }
 
+  /** Limite propre au projet ; la définir en fait le choix par défaut au lancement (profil « Projet »). */
+  function setLimit(key: "time_limit" | "memory_limit", text: string) {
+    const value = text.trim() === "" ? null : Math.max(1, Math.round(Number(text)));
+    if (value !== null && !Number.isFinite(value)) return;
+    app.project[key] = value;
+    if (value !== null) app.project.run_profile = null;
+    app.touch();
+  }
+
   async function saveGlobal() {
     await app.saveSettings($state.snapshot(draft) as Settings);
     app.info(t("Réglages enregistrés"));
@@ -48,36 +58,42 @@
 
     {#if tab === "project"}
       <div class="form">
-        <label>
-          <span>{t("Nom")}</span>
-          <input bind:value={app.project.name} oninput={() => app.touch()} />
-        </label>
-        <label>
-          <span>{t("Système d'unités")}</span>
-          <select bind:value={app.project.units} onchange={() => app.touch()}>
-            <option value="mm-N-MPa">{t("mm – N – MPa (t/mm³)")}</option>
-            <option value="m-N-Pa">{t("m – N – Pa (SI, kg/m³)")}</option>
-          </select>
-        </label>
-        <label>
-          <span>{t("Dossier des runs")}</span>
-          <input bind:value={app.project.runs_dir} oninput={() => app.touch()} />
-        </label>
-        <small class="muted">
-          {t("Limites du profil « Valeurs du projet ». Les autres profils se règlent dans les réglages globaux.")}
-        </small>
-        <div class="row">
+        <Section title={t("Général")} open>
           <label>
-            <span>{t("Temps limite (s)")}</span>
-            <input type="number" min="1" bind:value={app.project.time_limit} oninput={() => app.touch()} />
+            <span>{t("Nom")}</span>
+            <input bind:value={app.project.name} oninput={() => app.touch()} />
           </label>
           <label>
-            <span>{t("Mémoire limite (Mo)")}</span>
-            <input type="number" min="128" step="128" bind:value={app.project.memory_limit} oninput={() => app.touch()} />
+            <span>{t("Système d'unités")}</span>
+            <select bind:value={app.project.units} onchange={() => app.touch()}>
+              <option value="mm-N-MPa">{t("mm – N – MPa (t/mm³)")}</option>
+              <option value="m-N-Pa">{t("m – N – Pa (SI, kg/m³)")}</option>
+            </select>
           </label>
-        </div>
-        <div class="files">
-          <span class="files-title">{t("Fichiers rattachés aux unités")}</span>
+          <label>
+            <span>{t("Dossier des runs")}</span>
+            <input bind:value={app.project.runs_dir} oninput={() => app.touch()} />
+          </label>
+          <p class="muted">{t("Dossier du projet :")} <code>{app.projectDir ?? t("non enregistré")}</code> · {t("Enregistrement automatique.")}</p>
+        </Section>
+        <Section title={t("Limites de run du projet")}>
+          <small class="muted">
+            {t("Vides : le profil choisi à côté de Run s'applique (le premier par défaut). Définies : elles deviennent le choix par défaut au lancement (« Projet »).")}
+          </small>
+          <div class="row">
+            <label>
+              <span>{t("Temps limite (s)")}</span>
+              <input type="number" min="1" placeholder={t("profil")} value={app.project.time_limit ?? ""}
+                     oninput={(e) => setLimit("time_limit", e.currentTarget.value)} />
+            </label>
+            <label>
+              <span>{t("Mémoire limite (Mo)")}</span>
+              <input type="number" min="128" step="128" placeholder={t("profil")} value={app.project.memory_limit ?? ""}
+                     oninput={(e) => setLimit("memory_limit", e.currentTarget.value)} />
+            </label>
+          </div>
+        </Section>
+        <Section title={t("Fichiers rattachés aux unités")}>
           <small class="muted">
             {t("Déclarés dans le .export. En entrée (D), le fichier est copié dans le dossier du run ; en sortie (R), le run l'écrit sous ce nom.")}
           </small>
@@ -112,71 +128,44 @@
             </div>
           {/each}
           <button class="ghost add" onclick={addFile}><Icon name="plus" size={13} />{t("Rattacher un fichier…")}</button>
-        </div>
-        <p class="muted">{t("Dossier du projet :")} <code>{app.projectDir ?? t("non enregistré")}</code></p>
-        <p class="muted">{t("Enregistrement automatique.")}</p>
+        </Section>
       </div>
     {:else}
       <div class="form">
-        <label>
-          <span>{t("Langue de l'interface")}</span>
-          <select bind:value={draft.language}>
-            {#each i18n.languages as lang (lang.code)}<option value={lang.code}>{lang.name}</option>{/each}
-          </select>
-          <small class="muted">
-            {t("Fichiers de langue :")} <code>{app.paths?.languages}/&lt;code&gt;.json</code>
-          </small>
-        </label>
-        <CommandSettings {draft} />
-        <div class="profiles">
-          <strong>{t("Profils de run")}</strong>
-          <small class="muted">
-            {t("Choisis au lancement (menu à côté de Run) : P time_limit et P memory_limit du .export. Temps vide : illimité.")}
-          </small>
-          <div class="profile head muted">
-            <span>{t("Nom")}</span><span>{t("Temps limite (s)")}</span><span>{t("Mémoire limite (Mo)")}</span><span></span>
-          </div>
-          {#each draft.run_profiles as p, i (i)}
-            <div class="profile">
-              <input value={app.profileLabel(p.name)} oninput={(e) => (p.name = e.currentTarget.value)} />
-              <input
-                type="number"
-                min="1"
-                placeholder={t("illimité")}
-                value={p.time_limit ?? ""}
-                oninput={(e) => (p.time_limit = e.currentTarget.value === "" ? null : Number(e.currentTarget.value))}
-              />
-              <input type="number" min="128" step="128" bind:value={p.memory_limit} />
-              <button class="ghost icon" title={t("Retirer")} onclick={() => draft.run_profiles.splice(i, 1)}>
-                <Icon name="trash" size={13} />
-              </button>
-            </div>
-          {/each}
-          <button
-            class="ghost add"
-            onclick={() => draft.run_profiles.push({ name: t("Nouveau profil"), time_limit: 600, memory_limit: 4096 })}
-          >
-            <Icon name="plus" size={13} />{t("Ajouter un profil")}
-          </button>
-        </div>
-        <div class="catalog">
-          <div>
-            <strong>{t("Catalogue des commandes")}</strong>
+        <Section title={t("Interface")} open>
+          <label>
+            <span>{t("Langue de l'interface")}</span>
+            <select bind:value={draft.language}>
+              {#each i18n.languages as lang (lang.code)}<option value={lang.code}>{lang.name}</option>{/each}
+            </select>
+            <small class="muted">
+              {t("Fichiers de langue :")} <code>{app.paths?.languages}/&lt;code&gt;.json</code>
+            </small>
+          </label>
+          <p class="muted small">{t("Réglages :")} <code>{app.paths?.config}</code></p>
+        </Section>
+        <Section title={t("Lancement de Code_Aster")}>
+          <CommandSettings {draft} part="aster" />
+        </Section>
+        <Section title={t("ParaView et captures")}>
+          <CommandSettings {draft} part="post" />
+        </Section>
+        <Section title={t("Catalogue des commandes")}>
+          <div class="catalog">
             <div class="muted small">
               Code_Aster {app.catalog?.version ?? "?"} · {t("{count} commandes", { count: app.catalog?.commands.length ?? 0 })}
               <br /><code>{app.catalog?.source ?? ""}</code>
             </div>
+            <button onclick={updateCatalog} disabled={updating}>
+              {updating ? t("Export en cours…") : t("Mettre à jour le catalogue")}
+            </button>
           </div>
-          <button onclick={updateCatalog} disabled={updating}>
-            {updating ? t("Export en cours…") : t("Mettre à jour le catalogue")}
-          </button>
-        </div>
-        <label>
-          <span>{t("Commande d'export du catalogue")}</span>
-          <textarea rows="3" bind:value={draft.catalog_command} spellcheck="false"></textarea>
-          <small class="muted">{t("Variables :")} <code>{"{out_dir} {script} {image}"}</code></small>
-        </label>
-        <p class="muted small">{t("Réglages :")} <code>{app.paths?.config}</code></p>
+          <label>
+            <span>{t("Commande d'export du catalogue")}</span>
+            <textarea rows="3" bind:value={draft.catalog_command} spellcheck="false"></textarea>
+            <small class="muted">{t("Variables :")} <code>{"{out_dir} {script} {image}"}</code></small>
+          </label>
+        </Section>
         <div class="actions">
           <button class="primary" onclick={saveGlobal}><Icon name="save" />{t("Enregistrer")}</button>
         </div>
@@ -238,6 +227,9 @@
     font-family: var(--mono);
     font-size: 12px;
   }
+  p {
+    margin: 0;
+  }
   .row {
     display: flex;
     gap: 12px;
@@ -245,40 +237,9 @@
   .row label {
     flex: 1;
   }
-  p {
-    margin: 0;
-  }
   .actions {
     display: flex;
     justify-content: flex-end;
-  }
-  .files {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  .profiles {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  .profile {
-    display: grid;
-    grid-template-columns: 1fr 130px 130px 28px;
-    gap: 6px;
-    align-items: center;
-  }
-  .profile.head {
-    font-size: 11px;
-  }
-  .files-title {
-    font-weight: 500;
   }
   .file {
     display: flex;
@@ -291,7 +252,7 @@
   .file .path {
     flex: 1;
   }
-  .files .add {
+  .add {
     align-self: flex-start;
     color: var(--accent);
     font-size: 12px;

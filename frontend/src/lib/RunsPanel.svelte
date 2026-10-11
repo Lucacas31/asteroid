@@ -1,7 +1,7 @@
 <script lang="ts">
   // Gestionnaire des runs du projet : tableau, détails d'un run, comparaison de deux runs.
   import { untrack } from "svelte";
-  import { api, type Captures, type RunFile, type RunSummary } from "./api";
+  import { api, type Captures, type Headline, type RunFile, type RunSummary } from "./api";
   import CodeEditor from "./CodeEditor.svelte";
   import { formatValue } from "./format";
   import Icon from "./Icon.svelte";
@@ -102,9 +102,10 @@
     comparing = null;
   }
 
-  async function lighten(ids: string[]) {
-    await app.lightenRuns(ids);
-    if (current) files = await api.runFiles(current.id);
+  /** Chiffres d'un run antérieur au résumé, calculés à son ouverture : reportés dans sa ligne. */
+  function setHeadline(id: string, headline: Headline | null | undefined) {
+    const row = app.history.find((r) => r.id === id);
+    if (row && headline && !row.headline) row.headline = headline;
   }
 
   function saveNote() {
@@ -133,14 +134,6 @@
         </span>
         <button class="small" disabled={checked.length !== 2} onclick={compare} title={t("Comparer deux runs")}>
           {t("Comparer")}
-        </button>
-        <button
-          class="small"
-          disabled={!checked.length}
-          onclick={() => lighten(checked)}
-          title={t("Retirer la copie du maillage (résultats conservés)")}
-        >
-          {t("Alléger")}
         </button>
         <button class="small danger" disabled={!checked.length} onclick={() => remove(checked)}>
           <Icon name="trash" size={13} />{t("Supprimer")}
@@ -251,11 +244,6 @@
           <button class="small" onclick={() => app.showRun(current!.id)}><Icon name="file" size={13} />{t("Log")}</button>
           <button class="small" onclick={() => app.openParaview(current!.id)}><Icon name="eye" size={13} />ParaView</button>
           <button class="small" onclick={() => app.openRunDir(current!.id)}><Icon name="folder" size={13} />{t("Ouvrir le dossier")}</button>
-          {#if current.has_mesh && current.status !== "running"}
-            <button class="small" onclick={() => lighten([current!.id])} title={t("Retirer la copie du maillage (résultats conservés)")}>
-              {t("Alléger")}
-            </button>
-          {/if}
           {#if current.status !== "running"}
             <button class="small danger" onclick={() => remove([current!.id])}><Icon name="trash" size={13} />{t("Supprimer")}</button>
           {/if}
@@ -269,7 +257,8 @@
         ></textarea>
         {#if current.status === "ok" || current.status === "alarm"}
           <div class="section">{t("Résumé des résultats")}</div>
-          {#key current.id}<ResultPanel runId={current.id} onload={() => !current?.headline && app.refreshHistory()} />{/key}
+          <!-- currentId (valeur simple) : recréer l'objet du run ne relance pas la lecture du résumé. -->
+          {#key currentId}<ResultPanel runId={currentId!} onheadline={setHeadline} />{/key}
         {/if}
         {#if viewing}
           <div class="section">

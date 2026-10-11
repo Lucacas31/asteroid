@@ -126,11 +126,6 @@ async def delete(run_id: str) -> dict:
     return {"deleted": run_id}
 
 
-@router.post("/{run_id}/lighten")
-async def lighten(run_id: str) -> dict:
-    return {"freed": runner.lighten(_dir(run_id, idle=True))}
-
-
 @router.get("/{run_id}/summary")
 async def summary(run_id: str) -> dict:
     """Résumé des résultats et état des captures du run."""

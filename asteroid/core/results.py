@@ -27,7 +27,7 @@ from .i18n import N_
 from .med import TETS, CellBlock, Mesh, read_med, surface_polygons, triangulate
 
 SUMMARY_FILE = "resume.json"
-SUMMARY_VERSION = 1
+SUMMARY_VERSION = 2
 UNITS = {
     "mm-N-MPa": {"length": "mm", "stress": "MPa", "force": "N"},
     "m-N-Pa": {"length": "m", "stress": "Pa", "force": "N"},
@@ -398,7 +398,7 @@ def summarize(run_dir: Path, info: dict) -> dict:
     units = info.get("units", "mm-N-MPa")
     base = {"version": SUMMARY_VERSION, "units": UNITS.get(units, UNITS["mm-N-MPa"]), "results": []}
     if not rmeds:
-        return base | {"note": note(N_("pas de fichier .rmed dans ce run"))}
+        return base | {"note": note(N_("pas de fichier .rmed dans ce run : ajouter IMPR_RESU(FORMAT='MED', …) pour avoir un résumé"))}
     rmed = rmeds[0]
     mesh = read_med(rmed)
     base["bounds"] = list(mesh.bbox())  # maillage du résultat (après MODI_MAILLAGE)

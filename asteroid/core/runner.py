@@ -368,7 +368,7 @@ class RunManager:
                 info = self.info(d.name, runs_root)
                 if info:
                     keys = ("id", "status", "started", "duration", "note", "profile", "time_limit", "memory_limit", "headline", "units")
-                    item = {k: info.get(k) for k in keys} | {"size": dir_size(d), "has_mesh": (d / commgen.MESH_NAME).exists()}
+                    item = {k: info.get(k) for k in keys} | {"size": dir_size(d)}
                     if item["headline"] is None:
                         item["headline"] = _cached_headline(d)  # run antérieur au résumé, ouvert depuis
                     items.append(item)
@@ -421,16 +421,6 @@ def set_note(run_dir: Path, note: str) -> None:
     info = json.loads(path.read_text())
     info["note"] = note
     path.write_text(json.dumps(info, indent=2, ensure_ascii=False))
-
-
-def lighten(run_dir: Path) -> int:
-    """Retire la copie du maillage d'un run (résultats, .comm et message conservés). Octets libérés."""
-    mesh = run_dir / commgen.MESH_NAME
-    if not mesh.exists():
-        return 0
-    size = mesh.stat().st_size
-    mesh.unlink()
-    return size
 
 
 def compare_comm(runs_root: Path, a: str, b: str) -> list[str]:

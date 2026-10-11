@@ -107,13 +107,23 @@ class Settings(Persisted):
     capture_command: str = ""
 
 
-def run_limits(settings: Settings, profile: str | None, time_limit: int, memory_limit: int) -> dict:
-    """Limites du run : celles du profil nommé, sinon les valeurs du projet (profil libre)."""
-    for p in settings.run_profiles:
-        if profile and p.name == profile:
-            time = UNLIMITED_TIME if p.time_limit is None else p.time_limit
-            return {"profile": p.name, "time_limit": time, "memory_limit": p.memory_limit}
-    return {"profile": None, "time_limit": time_limit, "memory_limit": memory_limit}
+def run_limits(settings: Settings, profile: str | None, time_limit: int | None, memory_limit: int | None) -> dict:
+    """Limites du run, par ordre de priorité : le profil choisi au lancement ; les limites du
+    projet si elles sont définies (profil None, affiché « Projet ») ; le premier profil."""
+    chosen = next((p for p in settings.run_profiles if p.name == profile), None)
+    first = settings.run_profiles[0] if settings.run_profiles else None
+    if chosen is None and (time_limit is not None or memory_limit is not None):
+        base = _limits(first) if first else (300, 2048)
+        return {"profile": None, "time_limit": time_limit or base[0], "memory_limit": memory_limit or base[1]}
+    chosen = chosen or first
+    if chosen is None:
+        return {"profile": None, "time_limit": 300, "memory_limit": 2048}
+    time, memory = _limits(chosen)
+    return {"profile": chosen.name, "time_limit": time, "memory_limit": memory}
+
+
+def _limits(p: RunProfile) -> tuple[int, int]:
+    return (UNLIMITED_TIME if p.time_limit is None else p.time_limit), p.memory_limit
 
 
 def settings_path() -> Path:

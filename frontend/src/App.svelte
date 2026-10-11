@@ -7,6 +7,7 @@
   import ImportDialog from "./lib/ImportDialog.svelte";
   import MaterialLibrary from "./lib/MaterialLibrary.svelte";
   import MeshPanel from "./lib/MeshPanel.svelte";
+  import ProfilesDialog from "./lib/ProfilesDialog.svelte";
   import SettingsDialog from "./lib/SettingsDialog.svelte";
   import SetupDialog from "./lib/SetupDialog.svelte";
   import StatusBar from "./lib/StatusBar.svelte";
@@ -35,6 +36,7 @@
       app.importOpen = false;
       app.materialsOpen = false;
       app.problemsOpen = null;
+      app.profilesOpen = false;
     }
   }
 </script>
@@ -54,6 +56,7 @@
 {#if app.settingsOpen && app.settings}<SettingsDialog />{/if}
 {#if app.importOpen}<ImportDialog />{/if}
 {#if app.materialsOpen}<MaterialLibrary />{/if}
+{#if app.profilesOpen && app.settings}<ProfilesDialog />{/if}
 {#if app.settings && !app.settings.configured}<SetupDialog />{/if}
 {#if app.picker}<FilePicker />{/if}
 {#if app.notice}

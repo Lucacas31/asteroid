@@ -106,7 +106,7 @@
         <button
           class="primary run"
           onclick={() => app.startRun()}
-          title={t("Lancer le calcul (Ctrl+Entrée) avec le profil « {profile} »", { profile: app.profileLabel(app.project.run_profile) })}
+          title={t("Lancer le calcul (Ctrl+Entrée) avec le profil « {profile} »", { profile: app.profileLabel(app.currentProfile) })}
         >
           <Icon name="play" filled size={12} />Run
         </button>
@@ -118,24 +118,28 @@
             profilesOpen = !profilesOpen;
           }}
         >
-          {app.profileLabel(app.project.run_profile)}<Icon name="chevron" size={12} />
+          <Icon name="chevron" size={12} />
         </button>
         {#if profilesOpen}
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
           <div class="menu profiles" onclick={(e) => e.stopPropagation()}>
             <div class="sep first">{t("Lancer avec le profil")}</div>
-            {#each [null, ...(app.settings?.run_profiles ?? []).map((p) => p.name)] as name (name ?? "")}
-              {@const p = app.settings?.run_profiles.find((x) => x.name === name)}
-              <button class="ghost choice" onclick={() => launch(name)}>
-                <span class="tick">{#if (app.project.run_profile ?? null) === name}<Icon name="check" size={13} />{/if}</span>
-                <span class="name">{app.profileLabel(name)}</span>
-                <span class="muted small">
-                  {p ? app.limitsLabel(p.time_limit, p.memory_limit) : app.limitsLabel(app.project.time_limit, app.project.memory_limit)}
-                </span>
+            {#if app.projectLimits}
+              <button class="ghost choice" onclick={() => launch(null)} title={t("Limites définies dans les réglages du projet")}>
+                <span class="tick">{#if app.currentProfile === null}<Icon name="check" size={13} />{/if}</span>
+                <span class="name">{t("Projet")}</span>
+                <span class="muted small">{app.projectLimitsLabel}</span>
+              </button>
+            {/if}
+            {#each app.settings?.run_profiles ?? [] as p (p.name)}
+              <button class="ghost choice" onclick={() => launch(p.name)}>
+                <span class="tick">{#if app.currentProfile === p.name}<Icon name="check" size={13} />{/if}</span>
+                <span class="name">{app.profileLabel(p.name)}</span>
+                <span class="muted small">{app.limitsLabel(p.time_limit, p.memory_limit)}</span>
               </button>
             {/each}
             <div class="sep"></div>
-            <button class="ghost" onclick={() => act(() => (app.settingsOpen = true))}><Icon name="settings" />{t("Modifier les profils…")}</button>
+            <button class="ghost" onclick={() => act(() => (app.profilesOpen = true))}><Icon name="settings" />{t("Modifier les profils…")}</button>
           </div>
         {/if}
       </div>
@@ -209,10 +213,8 @@
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
     border-left: 1px solid color-mix(in srgb, #fff 35%, transparent);
-    gap: 3px;
-    padding-left: 8px;
-    padding-right: 6px;
-    font-size: 12px;
+    padding-left: 5px;
+    padding-right: 5px;
   }
   .profiles {
     left: auto;

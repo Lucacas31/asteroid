@@ -122,7 +122,7 @@ def test_run_management_routes(client, tmp_path):
             client.get(f"/api/runs/{ids[-1]}/log")  # flux SSE lu jusqu'à la fin du run
         history = client.get("/api/runs").json()
         assert [r["id"] for r in history] == ids[::-1]
-        assert history[0]["profile"] == "Long" and history[0]["has_mesh"] and history[0]["size"] > 0
+        assert history[0]["profile"] == "Long" and history[0]["size"] > 0
 
         assert client.patch(f"/api/runs/{ids[0]}", json={"note": "E = 2300"}).status_code == 200
         assert client.get(f"/api/runs/{ids[0]}").json()["note"] == "E = 2300"
@@ -133,8 +133,6 @@ def test_run_management_routes(client, tmp_path):
         diff = client.get("/api/runs/compare", params={"a": ids[0], "b": ids[1]}).json()["diff"]
         assert "-a = 1" in diff and "+a = 2" in diff
 
-        assert client.post(f"/api/runs/{ids[0]}/lighten").json()["freed"] > 0
-        assert not client.get("/api/runs").json()[1]["has_mesh"]
         assert client.delete(f"/api/runs/{ids[1]}").status_code == 200
         assert [r["id"] for r in client.get("/api/runs").json()] == [ids[0]]
         # Aucun identifiant ne sort du dossier des runs.
