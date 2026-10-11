@@ -146,6 +146,7 @@ Réglages et bibliothèque vont alors dans `~/.config/asteroid/`. Autres command
 .venv/bin/pytest                       # tests ; le cas réel tourne dans Docker si l'image est présente
 cd frontend && npm run dev             # interface sur :5173, /api relayé vers le serveur sur :8765
 scripts/build-portable.sh              # archive et wheel dans dist/
+scripts/asteroid-test.sh [projet]      # sources sans compiler (Vite) sur :5180, à côté de l'instance habituelle
 ```
 
 Options de la commande : `asteroid [dossier de projet] [--port N] [--no-browser] [--keep-running] [--no-desktop-entry]`.

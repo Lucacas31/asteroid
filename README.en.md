@@ -109,6 +109,7 @@ cd frontend && npm install && npm run build && cd ..
 ```
 
 Settings and library then live in `~/.config/asteroid/`. Tests: `.venv/bin/pytest`. Archive and wheel: `scripts/build-portable.sh` (output in `dist/`).
+scripts/asteroid-test.sh [project]     # sources without building (Vite) on :5180, next to the usual instance
 
 ## License
 
