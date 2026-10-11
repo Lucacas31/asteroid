@@ -56,7 +56,7 @@ TEMPLATES = {
     "MECA_STATIQUE": "resu = MECA_STATIQUE(MODELE=model, CHAM_MATER=chmat, EXCIT=_F(CHARGE=cl))",
     "CALC_CHAMP": (
         "resu = CALC_CHAMP(\n    reuse=resu,\n    RESULTAT=resu,\n"
-        '    CONTRAINTE=("SIGM_NOEU",),\n    CRITERES=("SIEQ_NOEU",),\n)'
+        '    CONTRAINTE=("SIGM_NOEU",),\n    CRITERES=("SIEQ_NOEU",),\n    FORCE=("REAC_NODA",),\n)'
     ),
     "IMPR_RESU": 'IMPR_RESU(FORMAT="MED", RESU=_F(RESULTAT=resu))',
 }

@@ -1,10 +1,14 @@
 <script lang="ts">
   // Commandes externes (Code_Aster, arrêt, ParaView) : partagées par l'écran de premier
   // lancement et les réglages globaux. L'app ne devine rien : elle exécute ces commandes.
-  import type { Settings } from "./api";
+  import { api, type Settings } from "./api";
   import { N_, t } from "./i18n.svelte";
 
   let { draft }: { draft: Settings } = $props();
+
+  async function suggest() {
+    draft.capture_command = (await api.captureSuggestion(draft.paraview_command)).command;
+  }
 
   const RUN_VARS: [string, string][] = [
     ["{run_dir}", N_("chemin absolu du dossier du run (dossier courant de la commande)")],
@@ -48,7 +52,27 @@
   </small>
 </label>
 
+<label>
+  <span>{t("Commande des captures (pvbatch)")}</span>
+  <div class="with-button">
+    <input bind:value={draft.capture_command} spellcheck="false" placeholder={t("vide : pas de captures")} />
+    <button type="button" onclick={suggest} title={t("pvbatch est livré avec ParaView, dans le même dossier bin/")}>
+      {t("Déduire de la commande ParaView")}
+    </button>
+  </div>
+  <small class="muted">
+    {t("Images du résultat (déformée, Von Mises) à la fin de chaque run, dans l'onglet Runs. Variable :")} <code>{"{script}"}</code>
+  </small>
+</label>
+
 <style>
+  .with-button {
+    display: flex;
+    gap: 6px;
+  }
+  .with-button input {
+    flex: 1;
+  }
   label {
     display: flex;
     flex-direction: column;

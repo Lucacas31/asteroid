@@ -103,6 +103,8 @@ class Settings(Persisted):
     configured: bool = False
     recent_projects: list[str] = Field(default_factory=list)
     run_profiles: list[RunProfile] = Field(default_factory=default_profiles)
+    # Captures des résultats par pvbatch ({script}) ; vide : pas de captures.
+    capture_command: str = ""
 
 
 def run_limits(settings: Settings, profile: str | None, time_limit: int, memory_limit: int) -> dict:

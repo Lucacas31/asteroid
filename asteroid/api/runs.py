@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from ..core import runner
+from ..core import captures, results, runner
 from ..core.i18n import t
 from ..core.runner import open_paraview
 from ..state import state
@@ -27,6 +28,11 @@ class StartBody(BaseModel):
 
 class NoteBody(BaseModel):
     note: str
+
+
+class PairBody(BaseModel):
+    a: str
+    b: str
 
 
 def _root() -> Path:
@@ -76,6 +82,26 @@ async def compare(a: str, b: str) -> dict:
     return {"diff": runner.compare_comm(_root(), a, b)}
 
 
+def _summary(run_id: str) -> tuple[Path, dict]:
+    path = _dir(run_id)
+    info = json.loads((path / runner.RUN_INFO).read_text())
+    return path, results.load_or_compute(path, info)
+
+
+@router.post("/compare/captures")
+async def compare_captures(body: PairBody) -> dict:
+    """Captures des deux runs avec les mêmes vues, la même échelle et la même amplification."""
+    command = state.settings.capture_command
+    if not command:
+        raise HTTPException(400, t("Commande des captures (pvbatch) non réglée"))
+    items = [_summary(body.a), _summary(body.b)]
+    shared = captures.params_for(items)
+    if shared is None:
+        raise HTTPException(404, t("Pas de résultat à montrer dans l'un des deux runs"))
+    return {rid: await captures.capture(path, summary, shared, command, compare=True)
+            for rid, (path, summary) in zip((body.a, body.b), items)}
+
+
 @router.get("/{run_id}")
 async def info(run_id: str) -> dict:
     _dir(run_id)
@@ -103,6 +129,44 @@ async def delete(run_id: str) -> dict:
 @router.post("/{run_id}/lighten")
 async def lighten(run_id: str) -> dict:
     return {"freed": runner.lighten(_dir(run_id, idle=True))}
+
+
+@router.get("/{run_id}/summary")
+async def summary(run_id: str) -> dict:
+    """Résumé des résultats et état des captures du run."""
+    path = _dir(run_id, idle=True)
+    info = json.loads((path / runner.RUN_INFO).read_text())
+    data = await asyncio.to_thread(results.load_or_compute, path, info)
+    if run_id in state.runs.capturing:
+        shots = {"state": "pending"}
+    elif (done := captures.capture_info(path)) is not None:
+        shots = {"state": "error" if done.get("error") else "ok"} | done
+    else:
+        shots = {"state": "none" if state.settings.capture_command else "disabled"}
+    return {"summary": data, "captures": shots}
+
+
+@router.post("/{run_id}/captures")
+async def make_captures(run_id: str) -> dict:
+    command = state.settings.capture_command
+    if not command:
+        raise HTTPException(400, t("Commande des captures (pvbatch) non réglée"))
+    path, data = _summary(run_id)
+    result = await state.runs.capture(path, data, command)
+    if result is None:
+        raise HTTPException(404, t("Pas de résultat à montrer dans ce run"))
+    return result
+
+
+@router.get("/{run_id}/captures/{kind}/{view}.png")
+async def capture_image(run_id: str, kind: str, view: str) -> FileResponse:
+    names = {name for name, _, _ in captures.VIEWS}
+    if kind not in ("run", "cmp") or view not in names:
+        raise HTTPException(404, t("Capture inconnue"))
+    image = captures.capture_dir(_dir(run_id), compare=kind == "cmp") / f"{view}.png"
+    if not image.is_file():
+        raise HTTPException(404, t("Capture inconnue"))
+    return FileResponse(image, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/{run_id}/files")

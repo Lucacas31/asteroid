@@ -1,10 +1,16 @@
 <script lang="ts">
   // Gestionnaire des runs du projet : tableau, détails d'un run, comparaison de deux runs.
-  import { api, type RunFile, type RunSummary } from "./api";
+  import { api, type Captures, type RunFile, type RunSummary } from "./api";
   import CodeEditor from "./CodeEditor.svelte";
+  import { formatValue } from "./format";
   import Icon from "./Icon.svelte";
+  import ResultPanel from "./ResultPanel.svelte";
   import { app, formatSize, statusLabel } from "./store.svelte";
-  import { t } from "./i18n.svelte";
+  import { i18n, t } from "./i18n.svelte";
+
+  const UNIT = { "mm-N-MPa": ["mm", "MPa"], "m-N-Pa": ["m", "Pa"] } as const;
+  const fmt = (x: number | null | undefined) => formatValue(x, i18n.locale);
+  const units = (r: RunSummary) => UNIT[r.units ?? "mm-N-MPa"];
 
   // Fichiers texte du run affichables dans l'app.
   const TEXT_FILES = /^(run\.(comm|export|log|sh|json)|message|paraview_open\.py)$/;
@@ -14,6 +20,9 @@
   let files = $state<RunFile[]>([]);
   let viewing = $state<{ name: string; text: string } | null>(null);
   let comparing = $state<{ a: RunSummary; b: RunSummary; diff: string[] } | null>(null);
+  let pair = $state<Record<string, Captures> | null>(null);
+  let pairWorking = $state(false);
+  let pairStamp = $state(0);
   let note = $state("");
 
   let current = $derived(app.history.find((r) => r.id === selected) ?? null);
@@ -54,8 +63,23 @@
     const [a, b] = app.history.filter((r) => checked.includes(r.id)).reverse();
     try {
       comparing = { a, b, diff: (await api.compareRuns(a.id, b.id)).diff };
+      pair = null;
     } catch (e) {
       app.error(e);
+    }
+  }
+
+  /** Captures des deux runs avec les mêmes vues, la même échelle de couleurs et la même amplification. */
+  async function compareShots() {
+    if (!comparing) return;
+    pairWorking = true;
+    try {
+      pair = await api.compareCaptures(comparing.a.id, comparing.b.id);
+      pairStamp = Date.now();
+    } catch (e) {
+      app.error(e);
+    } finally {
+      pairWorking = false;
     }
   }
 
@@ -125,6 +149,9 @@
             <th>{t("Profil")}</th>
             <th>{t("Statut")}</th>
             <th>{t("Durée")}</th>
+            <th class="num">{t("Dépl. max")}</th>
+            <th class="num">{t("σVM max")}</th>
+            <th class="num" title={t("Plus petite marge : résistance / Von Mises max")}>{t("RF min")}</th>
             <th>{t("Taille")}</th>
           </tr>
         </thead>
@@ -139,6 +166,9 @@
               <td>{app.profileLabel(r.profile)}</td>
               <td><span class="badge {r.status}">{statusLabel(r.status)}</span></td>
               <td>{r.duration != null ? `${r.duration} s` : "—"}</td>
+              <td class="num">{fmt(r.headline?.depl_max)}{#if r.headline?.depl_max != null}<span class="muted unit">{units(r)[0]}</span>{/if}</td>
+              <td class="num">{fmt(r.headline?.vmis_max)}{#if r.headline?.vmis_max != null}<span class="muted unit">{units(r)[1]}</span>{/if}</td>
+              <td class="num" class:low={r.headline?.rf_min != null && r.headline.rf_min < 1}>{fmt(r.headline?.rf_min)}</td>
               <td class="muted">{formatSize(r.size)}</td>
             </tr>
           {/each}
@@ -163,8 +193,38 @@
               <td><span class="badge {comparing.b.status}">{statusLabel(comparing.b.status)}</span></td>
             </tr>
             <tr><th>{t("Durée")}</th><td>{comparing.a.duration ?? "—"} s</td><td>{comparing.b.duration ?? "—"} s</td></tr>
+            <tr>
+              <th>{t("Dépl. max")}</th>
+              <td>{fmt(comparing.a.headline?.depl_max)} {units(comparing.a)[0]}</td>
+              <td>{fmt(comparing.b.headline?.depl_max)} {units(comparing.b)[0]}</td>
+            </tr>
+            <tr>
+              <th>{t("σVM max")}</th>
+              <td>{fmt(comparing.a.headline?.vmis_max)} {units(comparing.a)[1]}</td>
+              <td>{fmt(comparing.b.headline?.vmis_max)} {units(comparing.b)[1]}</td>
+            </tr>
+            <tr><th>{t("RF min")}</th><td>{fmt(comparing.a.headline?.rf_min)}</td><td>{fmt(comparing.b.headline?.rf_min)}</td></tr>
           </tbody>
         </table>
+        <div class="section">
+          {t("Captures")}
+          <span class="spacer"></span>
+          <button class="ghost small" onclick={compareShots} disabled={pairWorking || !app.settings?.capture_command}
+                  title={app.settings?.capture_command ? "" : t("Captures : régler la commande pvbatch dans les réglages globaux.")}>
+            {pairWorking ? t("Captures en cours…") : t("Mêmes vues, même échelle")}
+          </button>
+        </div>
+        {#if pair}
+          {@const ca = pair[comparing.a.id]}
+          {@const cb = pair[comparing.b.id]}
+          {#if ca?.error || cb?.error}<p class="warn pad small">{ca?.error ?? cb?.error}</p>{/if}
+          <div class="pairs">
+            {#each ca?.views ?? [] as v (v)}
+              <img src={api.captureUrl(comparing.a.id, "cmp", v, pairStamp)} alt={`${comparing.a.id} ${v}`} />
+              <img src={api.captureUrl(comparing.b.id, "cmp", v, pairStamp)} alt={`${comparing.b.id} ${v}`} />
+            {/each}
+          </div>
+        {/if}
         <div class="section">{t("Différences du .comm")}</div>
         {#if comparing.diff.length}
           <div class="diff mono">
@@ -199,6 +259,10 @@
           bind:value={note}
           onblur={saveNote}
         ></textarea>
+        {#if current.status === "ok" || current.status === "alarm"}
+          <div class="section">{t("Résumé des résultats")}</div>
+          {#key current.id}<ResultPanel runId={current.id} />{/key}
+        {/if}
         {#if viewing}
           <div class="section">
             <button class="ghost small" onclick={() => (viewing = null)}><Icon name="up" size={12} />{t("Fichiers")}</button>
@@ -401,6 +465,31 @@
   }
   .pad {
     padding: 0 10px;
+  }
+  .num {
+    text-align: right;
+  }
+  .unit {
+    margin-left: 3px;
+  }
+  td.low {
+    color: var(--err);
+    font-weight: 600;
+  }
+  .warn {
+    color: var(--warn);
+  }
+  .pairs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px 10px 10px;
+  }
+  .pairs img {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
   }
   .empty {
     padding: 16px;

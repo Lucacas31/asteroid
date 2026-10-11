@@ -23,8 +23,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
 
+from . import captures, results
 from . import comm as commgen
 from .i18n import t
+from .materials import load_project_materials
 from .message import parse_message, status_from
 from .model import Project
 from .settings import Settings, run_limits
@@ -58,6 +60,26 @@ def project_for_run(project: Project, settings: Settings) -> Project:
     """Projet avec les limites du profil choisi (P time_limit, P memory_limit du .export)."""
     limits = run_limits(settings, project.run_profile, project.time_limit, project.memory_limit)
     return project.model_copy(update={"time_limit": limits["time_limit"], "memory_limit": limits["memory_limit"]})
+
+
+def material_snapshot(project_dir: Path, project: Project, infos: list[commgen.BlockInfo]) -> dict:
+    """Matériaux de la bibliothèque utilisés par les DEFI_MATERIAU, par concept : nom, modèle,
+    résistances dans les unités de leur copie (pour les marges du résumé)."""
+    concepts = {b.id: b.concept for b in infos}
+    copies = load_project_materials(project_dir)
+    out = {}
+    for block in project.blocks:
+        entry = copies.get(block.meta.get("material") or "")
+        concept = block.concept if block.mode == "form" else concepts.get(block.id)
+        if entry is None or not concept:
+            continue
+        out[concept] = {
+            "name": entry["material"]["name"],
+            "model": entry["material"].get("model", "ELAS"),
+            "units": entry["units"],
+            "strengths": entry["converted"].get("strengths", []),
+        }
+    return out
 
 
 def _alive(pid: int | None, run_dir: Path) -> bool:
@@ -101,6 +123,7 @@ class Run:
 class RunManager:
     def __init__(self) -> None:
         self.active: dict[str, Run] = {}
+        self.capturing: set[str] = set()  # runs dont les captures pvbatch sont en cours
 
     # ------------------------------------------------------------------ lancement
 
@@ -146,8 +169,11 @@ class RunManager:
             "messages": [],
             "command": command,
             "stop_command": run.stop_command,
+            "capture_command": settings.capture_command,
             "warnings": result.warnings,
             "note": "",
+            "units": project.units,
+            "materials": material_snapshot(project_dir, project, result.blocks),
             **limits,
             # Pour rattacher les messages aux blocs si le run est repris après un redémarrage.
             "blocks": [asdict(b) | {"issues": []} for b in result.blocks],
@@ -228,10 +254,31 @@ class RunManager:
             diagnostic=diagnostic,
             messages=messages,
         )
+        summary = None
+        if status in ("ok", "alarm"):
+            try:
+                summary = await asyncio.to_thread(results.load_or_compute, run.dir, run.info)
+                run.info["headline"] = summary.get("headline")
+            except Exception as exc:  # noqa: BLE001 — un résumé impossible ne doit pas gâcher le run
+                with open(run.dir / RUN_LOG, "a") as log:
+                    log.write(f"[asteroid] résumé des résultats impossible : {exc}\n")
         self._write_info(run)
+        if summary and run.info.get("capture_command"):
+            asyncio.create_task(self.capture(run.dir, summary, run.info["capture_command"]))
         async with run.cond:
             run.finished = True
             run.cond.notify_all()
+
+    async def capture(self, run_dir: Path, summary: dict, command: str) -> dict | None:
+        """Captures pvbatch d'un run seul (cadrage et échelle propres au run)."""
+        shared = captures.params_for([(run_dir, summary)])
+        if shared is None:
+            return None
+        self.capturing.add(run_dir.name)
+        try:
+            return await captures.capture(run_dir, summary, shared, command)
+        finally:
+            self.capturing.discard(run_dir.name)
 
     def _write_info(self, run: Run) -> None:
         (run.dir / RUN_INFO).write_text(json.dumps(run.info, indent=2, ensure_ascii=False))
@@ -320,14 +367,14 @@ class RunManager:
             if d.is_dir() and (d / RUN_INFO).exists():
                 info = self.info(d.name, runs_root)
                 if info:
-                    keys = ("id", "status", "started", "duration", "note", "profile", "time_limit", "memory_limit")
+                    keys = ("id", "status", "started", "duration", "note", "profile", "time_limit", "memory_limit", "headline", "units")
                     items.append({k: info.get(k) for k in keys} | {"size": dir_size(d), "has_mesh": (d / commgen.MESH_NAME).exists()})
         return items
 
 
 def public_info(info: dict) -> dict:
-    """run.json sans les données internes (blocs, pid)."""
-    return {k: v for k, v in info.items() if k not in ("blocks", "pid")}
+    """run.json sans les données internes (blocs, pid, matériaux, commande de captures)."""
+    return {k: v for k, v in info.items() if k not in ("blocks", "pid", "materials", "capture_command")}
 
 
 def _read_exit(run_dir: Path) -> int | None:
