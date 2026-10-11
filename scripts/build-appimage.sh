@@ -51,6 +51,8 @@ uv pip install --quiet --python "$py" --break-system-packages --compile-bytecode
 "$py" -I -m compileall -q -j 0 "$lib" >/dev/null || true
 # Scripts d'entrée (uvicorn, f2py…) : leur shebang pointe vers le dossier de construction.
 find "$appdir/usr/python/bin" -mindepth 1 ! -name 'python3*' -delete
+# Chemin du wheel installé (métadonnée pip) : inutile et propre à la machine.
+rm -f "$lib"/site-packages/asteroid-*.dist-info/direct_url.json
 
 install -m 755 "$root/packaging/AppRun" "$appdir/AppRun"
 unzip -p "$wheel" asteroid/static/logo.png > "$appdir/asteroid.png"
@@ -70,7 +72,10 @@ EOF
 
 echo "== Contrôle : l'app démarre et aucun chemin de la machine de construction"
 "$py" -I -c "import asteroid.cli, asteroid.server"
-if leaks="$(grep -rlaF -e "$HOME" -e "/home/$(id -un)" "$appdir")"; then
+# Paquets tiers exclus : leurs métadonnées (SBOM) citent la machine de leurs auteurs, souvent
+# /home/runner, qui est aussi le $HOME de GitHub Actions.
+if leaks="$(grep -rlaF -e "$HOME" -e "/home/$(id -un)" --exclude-dir=site-packages "$appdir" \
+  "$lib"/site-packages/asteroid "$lib"/site-packages/asteroid-*.dist-info)"; then
   echo "Chemins de la machine trouvés dans :" >&2
   echo "$leaks" >&2
   exit 1
