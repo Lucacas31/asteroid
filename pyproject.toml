@@ -1,6 +1,6 @@
 [project]
 name = "asteroid"
-version = "0.2.0"
+version = "0.3.0"
 description = "Préparer, lancer et suivre des calculs Code_Aster sans Salome-Meca"
 readme = "README.md"
 license = "GPL-3.0-or-later"
